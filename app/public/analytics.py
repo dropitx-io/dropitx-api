@@ -30,7 +30,7 @@ class TrackResponse(BaseModel):
 # POST /analytics/track
 # ---------------------------------------------------------------------------
 
-@router.post("/analytics/track")
+@router.post("/analytics/track", tags=["Analytics"])
 async def track_view(
     request: Request,
     body: AnalyticsTrack,

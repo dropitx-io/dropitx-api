@@ -32,7 +32,7 @@ from app.dashboard.teams import router  # noqa: E402
 # Invites
 # ---------------------------------------------------------------------------
 
-@router.get("/teams/{slug}/invites")
+@router.get("/teams/{slug}/invites", tags=["Team Invites"])
 async def list_invites(slug: str, user: User = Depends(get_current_user)):
     """List pending invites for a team."""
     team = await resolve_team_by_slug(slug)
@@ -50,7 +50,7 @@ async def list_invites(slug: str, user: User = Depends(get_current_user)):
     return resp.data or []
 
 
-@router.post("/teams/{slug}/invites", status_code=201)
+@router.post("/teams/{slug}/invites", status_code=201, tags=["Team Invites"])
 async def create_invite(
     slug: str,
     body: dict,
@@ -87,7 +87,7 @@ async def create_invite(
     return {**result, "invite_url": invite_url}
 
 
-@router.delete("/teams/{slug}/invites")
+@router.delete("/teams/{slug}/invites", tags=["Team Invites"])
 async def revoke_invite(
     slug: str,
     body: dict,
@@ -114,7 +114,7 @@ async def revoke_invite(
     return {"detail": "Invite revoked"}
 
 
-@router.post("/teams/{slug}/invites/bulk")
+@router.post("/teams/{slug}/invites/bulk", tags=["Team Invites"])
 async def bulk_invite(
     slug: str,
     body: dict,
@@ -161,7 +161,7 @@ async def bulk_invite(
     return {"success": success, "duplicate": duplicate, "errors": errors}
 
 
-@router.post("/teams/{slug}/invites/{invite_id}/resend")
+@router.post("/teams/{slug}/invites/{invite_id}/resend", tags=["Team Invites"])
 async def resend_invite(
     slug: str,
     invite_id: str,
@@ -208,7 +208,7 @@ async def resend_invite(
 # Events & Shares
 # ---------------------------------------------------------------------------
 
-@router.get("/teams/{slug}/events")
+@router.get("/teams/{slug}/events", tags=["Team Events & Shares"])
 async def list_events(
     slug: str,
     user: User = Depends(get_current_user),
@@ -233,7 +233,7 @@ async def list_events(
     return resp.data or []
 
 
-@router.get("/teams/{slug}/shares")
+@router.get("/teams/{slug}/shares", tags=["Team Events & Shares"])
 async def list_shares(
     slug: str,
     user: User = Depends(get_current_user),

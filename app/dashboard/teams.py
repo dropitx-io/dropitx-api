@@ -34,7 +34,7 @@ def _slugify(name: str) -> str:
 # Team CRUD
 # ---------------------------------------------------------------------------
 
-@router.get("/teams")
+@router.get("/teams", tags=["Teams"])
 async def list_teams(user: User = Depends(get_current_user)):
     """List all teams the authenticated user belongs to."""
     client = get_admin_client()
@@ -47,7 +47,7 @@ async def list_teams(user: User = Depends(get_current_user)):
     return resp.data or []
 
 
-@router.post("/teams", status_code=201)
+@router.post("/teams", status_code=201, tags=["Teams"])
 async def create_team(
     body: CreateTeamInput,
     user: User = Depends(get_current_user),
@@ -77,7 +77,7 @@ async def create_team(
     return team_row
 
 
-@router.get("/teams/{slug}")
+@router.get("/teams/{slug}", tags=["Teams"])
 async def get_team(slug: str, user: User = Depends(get_current_user)):
     """Get team details. Must be a member."""
     team = await resolve_team_by_slug(slug)
@@ -87,7 +87,7 @@ async def get_team(slug: str, user: User = Depends(get_current_user)):
     return team
 
 
-@router.patch("/teams/{slug}")
+@router.patch("/teams/{slug}", tags=["Teams"])
 async def update_team(
     slug: str,
     body: dict,
@@ -110,7 +110,7 @@ async def update_team(
     return resp.data[0]
 
 
-@router.delete("/teams/{slug}", status_code=204)
+@router.delete("/teams/{slug}", status_code=204, tags=["Teams"])
 async def delete_team(slug: str, user: User = Depends(get_current_user)):
     """Delete team and all associated data. Owner only."""
     team = await resolve_team_by_slug(slug)
@@ -128,7 +128,7 @@ async def delete_team(slug: str, user: User = Depends(get_current_user)):
 # Members
 # ---------------------------------------------------------------------------
 
-@router.get("/teams/{slug}/members")
+@router.get("/teams/{slug}/members", tags=["Teams"])
 async def list_members(slug: str, user: User = Depends(get_current_user)):
     """List team members with display_name and avatar from user_profiles."""
     team = await resolve_team_by_slug(slug)
@@ -146,7 +146,7 @@ async def list_members(slug: str, user: User = Depends(get_current_user)):
     return resp.data or []
 
 
-@router.patch("/teams/{slug}/members")
+@router.patch("/teams/{slug}/members", tags=["Teams"])
 async def change_member_role(
     slug: str,
     body: dict,
@@ -174,7 +174,7 @@ async def change_member_role(
     return {"detail": "Role updated"}
 
 
-@router.delete("/teams/{slug}/members")
+@router.delete("/teams/{slug}/members", tags=["Teams"])
 async def remove_member(
     slug: str,
     body: dict,

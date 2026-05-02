@@ -13,13 +13,13 @@ from core.supabase import get_admin_client
 from models.api_key import ApiKeyCreate, ApiKeyCreateResponse, ApiKeyResponse
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/keys", tags=["keys"])
+router = APIRouter(prefix="/keys", tags=["API Keys"])
 
 # Team roles allowed to create team API keys
 _EDITOR_ROLES = {"owner", "editor"}
 
 
-@router.post("", response_model=ApiKeyCreateResponse, status_code=201)
+@router.post("", response_model=ApiKeyCreateResponse, status_code=201, summary="Create API key")
 async def create_key(
     body: ApiKeyCreate,
     user: User = Depends(get_current_user),
@@ -64,7 +64,7 @@ async def create_key(
     )
 
 
-@router.get("", response_model=list[ApiKeyResponse])
+@router.get("", response_model=list[ApiKeyResponse], summary="List API keys")
 async def list_keys(
     team_id: str | None = Query(default=None),
     user: User = Depends(get_current_user),
@@ -101,7 +101,7 @@ async def list_keys(
     ]
 
 
-@router.delete("/{key_id}", status_code=204)
+@router.delete("/{key_id}", status_code=204, summary="Revoke API key")
 async def revoke_key(
     key_id: str,
     user: User = Depends(get_current_user),

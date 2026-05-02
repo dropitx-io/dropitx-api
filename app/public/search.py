@@ -19,7 +19,7 @@ router = APIRouter()
 # GET /search
 # ---------------------------------------------------------------------------
 
-@router.get("/search")
+@router.get("/search", tags=["Search"])
 async def search_shares(
     q: str = Query(min_length=2, max_length=200, description="Search query"),
     page: int = Query(default=1, ge=1, description="Page number"),

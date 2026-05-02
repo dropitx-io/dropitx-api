@@ -55,7 +55,7 @@ class UploadResponse:
         }
 
 
-@router.post("/upload")
+@router.post("/upload", tags=["Upload"])
 async def upload(
     request: Request,
     file: UploadFile,

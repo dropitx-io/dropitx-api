@@ -37,7 +37,7 @@ class PublishResponse(BaseModel):
     custom_slug: str | None
 
 
-@router.post("/publish", response_model=PublishResponse)
+@router.post("/publish", response_model=PublishResponse, tags=["Publish"])
 async def publish(
     body: PublishRequest,
     request: Request,

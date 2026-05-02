@@ -43,7 +43,7 @@ def _extract_slug(url: str) -> str | None:
 # GET /oembed
 # ---------------------------------------------------------------------------
 
-@router.get("/oembed")
+@router.get("/oembed", tags=["oEmbed"])
 async def oembed(
     request: Request,
     url: str = Query(description="The share URL to embed"),

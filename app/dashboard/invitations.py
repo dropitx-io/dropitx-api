@@ -24,7 +24,7 @@ invitations_router = APIRouter()
 invite_actions_router = APIRouter()
 
 
-@invitations_router.get("/invitations")
+@invitations_router.get("/invitations", tags=["Invitations"])
 async def list_invitations(user: User = Depends(get_current_user)):
     """List pending invites matching the authenticated user's email."""
     if not user.email:
@@ -40,7 +40,7 @@ async def list_invitations(user: User = Depends(get_current_user)):
     return resp.data or []
 
 
-@invite_actions_router.post("/invite/accept")
+@invite_actions_router.post("/invite/accept", tags=["Invitations"])
 async def accept_invite(
     body: dict,
     user: User = Depends(get_current_user),
@@ -67,7 +67,7 @@ async def accept_invite(
         ) from exc
 
 
-@invite_actions_router.post("/invite/decline")
+@invite_actions_router.post("/invite/decline", tags=["Invitations"])
 async def decline_invite(
     body: dict,
     user: User = Depends(get_current_user),

@@ -67,7 +67,7 @@ def _authorize_owner(row: dict, user: User | None, delete_token: str | None) -> 
 # DELETE /shares/{slug}
 # ---------------------------------------------------------------------------
 
-@router.delete("/shares/{slug}")
+@router.delete("/shares/{slug}", tags=["Shares"])
 async def delete_share(
     slug: str,
     body: DeleteShareRequest | None = None,
@@ -107,7 +107,7 @@ async def delete_share(
 # POST /shares/{slug}/set-password
 # ---------------------------------------------------------------------------
 
-@router.post("/shares/{slug}/set-password")
+@router.post("/shares/{slug}/set-password", tags=["Shares"])
 async def set_password(
     slug: str,
     body: SetPasswordRequest,
@@ -142,7 +142,7 @@ async def set_password(
 # POST /shares/{slug}/unlock
 # ---------------------------------------------------------------------------
 
-@router.post("/shares/{slug}/unlock")
+@router.post("/shares/{slug}/unlock", tags=["Shares"])
 async def unlock_share(
     slug: str,
     request: Request,

@@ -35,7 +35,7 @@ _EXT_MAP: dict[str, str] = {
 _MAX_SIZE = 5 * 1024 * 1024  # 5 MB
 
 
-@router.post("/images/upload")
+@router.post("/images/upload", tags=["Images"])
 async def upload_image(
     file: UploadFile,
     user: User = Depends(get_current_user),

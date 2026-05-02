@@ -20,7 +20,7 @@ from core.nanoid import generate_delete_token, generate_slug
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/documents", tags=["documents"])
+router = APIRouter(prefix="/documents", tags=["Documents"])
 
 _STORAGE_BUCKET = "shares"
 
@@ -75,7 +75,7 @@ def _to_response(row: dict, content: str) -> DocumentResponse:
 # ---------------------------------------------------------------------------
 
 
-@router.post("", response_model=DocumentResponse, status_code=201)
+@router.post("", response_model=DocumentResponse, status_code=201, summary="Create document")
 async def create_document(
     body: DocumentCreate,
     auth: ApiKeyAuth = Depends(get_api_key),
@@ -144,7 +144,7 @@ async def create_document(
     return _to_response(share_row, body.content)
 
 
-@router.get("", response_model=list[DocumentResponse])
+@router.get("", response_model=list[DocumentResponse], summary="List documents")
 async def list_documents(
     page: int = Query(default=1, ge=1),
     limit: int = Query(default=20, ge=1, le=100),
@@ -186,7 +186,7 @@ async def list_documents(
     return results
 
 
-@router.get("/{slug}", response_model=DocumentResponse)
+@router.get("/{slug}", response_model=DocumentResponse, summary="Get document by slug")
 async def get_document(
     slug: str,
     auth: ApiKeyAuth = Depends(get_api_key),
@@ -198,7 +198,7 @@ async def get_document(
     return _to_response(row, content)
 
 
-@router.patch("/{slug}", response_model=DocumentResponse)
+@router.patch("/{slug}", response_model=DocumentResponse, summary="Update document")
 async def update_document(
     slug: str,
     body: DocumentUpdate,
@@ -248,7 +248,7 @@ async def update_document(
     return _to_response(updated, final_content)
 
 
-@router.delete("/{slug}", status_code=204)
+@router.delete("/{slug}", status_code=204, summary="Delete document")
 async def delete_document(
     slug: str,
     auth: ApiKeyAuth = Depends(get_api_key),
