@@ -1,13 +1,11 @@
+"""V1 API router — aggregates all sub-routers under /api/v1."""
+
 from fastapi import APIRouter
+
+from app.v1.documents import router as documents_router
+from app.v1.keys import router as keys_router
 
 router = APIRouter()
 
-
-@router.get("/documents")
-async def list_documents():
-    return {"message": "Phase 4 placeholder"}
-
-
-@router.post("/documents")
-async def create_document():
-    return {"message": "Phase 4 placeholder"}
+router.include_router(documents_router)
+router.include_router(keys_router)

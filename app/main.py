@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import settings
 from app.v1.router import router as v1_router
-from app.dashboard.router import router as dashboard_router
+from app.dashboard.router import router as dashboard_router, invite_actions
 from app.public.router import router as public_router
 from app.internal.router import router as internal_router
 
@@ -24,6 +24,7 @@ app.add_middleware(
 
 app.include_router(v1_router, prefix="/api/v1", tags=["v1"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["dashboard"])
+app.include_router(invite_actions, prefix="/api", tags=["invite"])
 app.include_router(public_router, prefix="/api", tags=["public"])
 app.include_router(internal_router, prefix="/api", tags=["internal"])
 
