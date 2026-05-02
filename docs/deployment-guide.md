@@ -18,54 +18,6 @@ Set these in your deployment platform's environment settings:
 | `ALLOWED_ORIGINS` | Comma-separated CORS origins | `https://dropitx.com,https://app.dropitx.com` |
 | `FRONTEND_URL` | Frontend base URL (invite links) | `https://dropitx.com` |
 
-## Vercel Deployment
-
-### Setup
-
-1. Connect your Git repository to Vercel
-2. Vercel auto-detects Python via `requirements.txt`
-3. Set build command (if not auto-detected): `pip install -r requirements.txt`
-4. Set entry point to `app/main.py`
-
-### Configuration
-
-In Vercel project settings:
-- **Build Command**: (auto-detected or `pip install -r requirements.txt`)
-- **Install Command**: (auto-detected or `pip install -r requirements.txt`)
-- **Output Directory**: `.`
-- **Python Version**: 3.12+
-
-### Environment Variables
-
-Add all environment variables in Vercel dashboard under **Settings > Environment Variables**. Add to Production, Preview, and Development as needed.
-
-### Deploy
-
-```bash
-# Via Vercel CLI
-npm i -g vercel
-vercel --prod
-
-# Or push to connected branch for auto-deploy
-git push origin main
-```
-
-### Limitations
-
-- Serverless functions have execution time limits (10s on hobby, 60s on pro)
-- Cold starts add latency (~200-500ms)
-- No persistent filesystem — all state in Supabase
-- File uploads limited by Vercel body size (4.5 MB default, 50 MB with stream)
-
-### Troubleshooting
-
-| Issue | Solution |
-|-------|----------|
-| Import error on deploy | Check Python version matches (3.12+) |
-| Cold start timeout | Keep dependencies minimal, avoid heavy imports |
-| 413 Payload Too Large | Enable streaming for large uploads, check body size limits |
-| CORS errors | Verify `ALLOWED_ORIGINS` includes the frontend URL |
-
 ## Render Deployment
 
 ### Setup via Blueprint

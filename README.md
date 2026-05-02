@@ -192,14 +192,6 @@ JWT tokens are verified against Supabase JWKS (`/auth/v1/.well-known/jwks.json`)
 
 ## Deployment
 
-### Vercel
-
-```bash
-vercel --prod
-```
-
-Requires `@vercel/python` runtime. Entry point: `app/main.py`. Set env vars via `vercel env`.
-
 ### Render
 
 Blueprint included in `render.yaml`. Connect repo, Render auto-detects config. Set env vars in the Render dashboard.

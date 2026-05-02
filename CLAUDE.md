@@ -69,7 +69,6 @@ pip install -e ".[dev]"            # with test deps
 
 ## Deployment
 
-- **Vercel**: `@vercel/python` build, entry point `app/main.py`
 - **Render**: `render.yaml` blueprint, `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 - Python 3.12+ required
 

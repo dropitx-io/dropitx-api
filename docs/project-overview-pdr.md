@@ -78,7 +78,7 @@ Sharing HTML/Markdown content online requires either complex CMS setups or gener
 
 - **Security**: JWT verification via JWKS, bcrypt password hashing, SHA-256 API key storage, rate limiting on sensitive endpoints
 - **Reliability**: Compensating transactions for storage/DB consistency, fail-open rate limiting for non-critical paths
-- **Scalability**: Stateless API, externalized auth/storage to Supabase, deployable on serverless (Vercel) or container (Render)
+- **Scalability**: Stateless API, externalized auth/storage to Supabase, deployed on Render (container)
 - **Privacy**: Password-protected shares, private documents not returned in search
 
 ## Out of Scope

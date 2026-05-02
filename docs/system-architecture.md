@@ -171,22 +171,14 @@ Used by v1 API document endpoints.
 
 ## Deployment Architecture
 
-### Vercel (Serverless)
-```
-Request → Vercel Edge → @vercel/python → app.main:app → Supabase
-```
-- Cold start on each invocation
-- No persistent state
-- Environment variables via Vercel dashboard
-
 ### Render (Container)
 ```
 Request → Render Load Balancer → uvicorn → app.main:app → Supabase
 ```
-- Persistent process
-- Single container, auto-scaling
+- Persistent process, auto-scaling
 - Health check at `/health`
 - Environment variables via Render dashboard or `render.yaml`
+- Blueprint deployment via `render.yaml`
 
 ### Shared Infrastructure
 - **Supabase Postgres**: All data (tables, RPCs)

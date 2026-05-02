@@ -51,7 +51,6 @@ Core functionality is implemented and deployable. The API supports file sharing,
 - [x] Team API keys with membership verification
 
 ### Phase 7 — Deployment (Complete)
-- [x] Vercel deployment configuration
 - [x] Render deployment blueprint (`render.yaml`)
 - [x] Interactive API docs (`/docs`, `/redoc`)
 
