@@ -128,8 +128,10 @@ async def upload(
                     "title": None,
                     "is_private": False,
                     "delete_token": delete_token,
-                    "plain_text": plain_text[:5000],
-                    "content_type": ext,
+                    "content_text": plain_text[:5000],
+                    "file_size": len(content_bytes),
+                    "mime_type": content_type,
+                    "source": "upload",
                 }
             ).execute(),
         )

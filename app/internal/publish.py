@@ -60,9 +60,6 @@ async def publish(
     storage_path = f"shares/{slug}.html"
     delete_token = generate_delete_token()
 
-    # Fetch user profile for display_name
-    display_name = await _fetch_display_name(user.id)
-
     # Upload to Supabase Storage
     client = get_admin_client()
     try:
@@ -92,9 +89,10 @@ async def publish(
                     "title": body.title,
                     "is_private": body.is_private,
                     "delete_token": delete_token,
-                    "plain_text": plain_text[:5000],
-                    "content_type": "html",
-                    "display_name": display_name,
+                    "content_text": plain_text[:5000],
+                    "file_size": len(body.content.encode("utf-8")),
+                    "mime_type": "text/html",
+                    "source": "editor",
                 }
             ).execute(),
         )
@@ -155,23 +153,6 @@ async def _resolve_custom_slug(user_id: str, custom_slug: str) -> str:
         # Proceed optimistically if check fails
 
     return full_slug
-
-
-async def _fetch_display_name(user_id: str) -> str | None:
-    """Fetch display_name from user profile."""
-    client = get_admin_client()
-    try:
-        resp = await asyncio.to_thread(
-            lambda: client.table("profiles")
-            .select("display_name")
-            .eq("id", user_id)
-            .execute(),
-        )
-        rows = resp.data or []
-        return rows[0].get("display_name") if rows else None
-    except Exception as exc:
-        logger.warning("Failed to fetch profile for user=%s: %s", user_id, exc)
-        return None
 
 
 async def _cleanup_storage(storage_path: str) -> None:
