@@ -70,8 +70,7 @@ async def publish(
             lambda: client.storage.from_("html-files").upload(
                 storage_path,
                 body.content.encode("utf-8"),
-                content_type="text/html; charset=utf-8",
-                upsert=True,
+                file_options={"content-type": "text/html; charset=utf-8", "upsert": "true"},
             ),
         )
     except Exception as exc:

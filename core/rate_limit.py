@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from core.supabase import get_admin_client
 
@@ -17,6 +18,19 @@ class RateLimitResult:
     limit: int
     remaining: int
     reset: int  # Unix timestamp
+
+
+def _parse_reset(value) -> int:
+    """Convert reset_at from RPC to unix epoch. Handles int or ISO string."""
+    if isinstance(value, (int, float)):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            dt = datetime.fromisoformat(value)
+            return int(dt.timestamp())
+        except ValueError:
+            return 0
+    return 0
 
 
 def _check_rpc(
@@ -57,7 +71,7 @@ def _check_rpc(
             success=bool(row.get("success", fail_open)),
             limit=max_attempts,
             remaining=int(row.get("remaining", max_attempts)),
-            reset=int(row.get("reset_at", 0)),
+            reset=_parse_reset(row.get("reset_at", 0)),
         )
 
     except Exception:

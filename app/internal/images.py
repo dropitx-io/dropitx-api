@@ -69,8 +69,7 @@ async def upload_image(
             lambda: client.storage.from_("html-files").upload(
                 storage_path,
                 content_bytes,
-                content_type=content_type,
-                upsert=True,
+                file_options={"content-type": content_type, "upsert": "true"},
             ),
         )
     except Exception as exc:
