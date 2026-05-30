@@ -31,6 +31,12 @@ class ShareBase(BaseModel):
     updated_at: datetime
     expires_at: datetime | None = None
     view_count: int = 0
+    # E2E encryption
+    encrypted: bool = False
+    encryption_iv: str | None = None
+    encryption_salt: str | None = None
+    # Burn after reading
+    burn_after_reading: bool = False
 
 
 class ShareResponse(ShareBase):
@@ -52,6 +58,12 @@ class ShareCreate(BaseModel):
     is_private: bool = False
     password: str | None = Field(default=None, max_length=128)
     expires_in: int | None = Field(default=None, description="Seconds until expiry")
+    # E2E encryption
+    encrypted: bool = False
+    encryption_iv: str | None = None
+    encryption_salt: str | None = None
+    # Burn after reading
+    burn_after_reading: bool = False
 
 
 class ShareUpdate(BaseModel):
@@ -60,6 +72,9 @@ class ShareUpdate(BaseModel):
     title: str | None = None
     is_private: bool | None = None
     password: str | None = Field(default=None, max_length=128)
+    # E2E encryption (when updating encrypted content)
+    encryption_iv: str | None = None
+    encryption_salt: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -74,3 +89,24 @@ class SearchResult(BaseModel):
     view_count: int
     snippet: str
     rank: float
+
+
+# ---------------------------------------------------------------------------
+# Version History
+# ---------------------------------------------------------------------------
+
+class ShareRevision(BaseModel):
+    """A single revision snapshot."""
+    id: str
+    share_id: str
+    revision: int
+    content: str
+    filename: str | None = None
+    title: str | None = None
+    created_at: datetime
+
+
+class RevisionListResponse(BaseModel):
+    """Paginated list of revisions."""
+    revisions: list[ShareRevision]
+    total: int

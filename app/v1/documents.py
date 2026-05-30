@@ -34,6 +34,14 @@ class DocumentCreate(BaseModel):
     filename: str | None = None
     title: str | None = None
     is_private: bool = False
+    # E2E encryption
+    encrypted: bool = False
+    encryption_iv: str | None = None
+    encryption_salt: str | None = None
+    # Burn after reading
+    burn_after_reading: bool = False
+    # Expiration
+    expires_in: int | None = Field(default=None, description="Seconds until expiry")
 
 
 class DocumentUpdate(BaseModel):
@@ -41,6 +49,9 @@ class DocumentUpdate(BaseModel):
     filename: str | None = None
     title: str | None = None
     is_private: bool | None = None
+    # E2E encryption (when updating encrypted content)
+    encryption_iv: str | None = None
+    encryption_salt: str | None = None
 
 
 class DocumentResponse(BaseModel):
@@ -53,6 +64,14 @@ class DocumentResponse(BaseModel):
     view_count: int = 0
     created_at: datetime
     updated_at: datetime
+    # E2E encryption
+    encrypted: bool = False
+    encryption_iv: str | None = None
+    encryption_salt: str | None = None
+    # Burn after reading
+    burn_after_reading: bool = False
+    # Expiration
+    expires_at: datetime | None = None
 
 
 def _to_response(row: dict, content: str) -> DocumentResponse:
@@ -67,7 +86,25 @@ def _to_response(row: dict, content: str) -> DocumentResponse:
         view_count=row.get("view_count", 0),
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+        encrypted=row.get("encrypted", False),
+        encryption_iv=row.get("encryption_iv"),
+        encryption_salt=row.get("encryption_salt"),
+        burn_after_reading=row.get("burn_after_reading", False),
+        expires_at=row.get("expires_at"),
     )
+
+
+# ---------------------------------------------------------------------------
+# Expiration helper
+# ---------------------------------------------------------------------------
+
+def _compute_expires_at(expires_in: int | None) -> str | None:
+    """Convert expires_in (seconds) to an ISO timestamp string."""
+    if expires_in is None:
+        return None
+    from datetime import timedelta
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in)
+    return expires_at.isoformat()
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +149,15 @@ async def create_document(
         "title": body.title,
         "is_private": body.is_private,
         "source": "api",
+        "encrypted": body.encrypted,
+        "encryption_iv": body.encryption_iv,
+        "encryption_salt": body.encryption_salt,
+        "burn_after_reading": body.burn_after_reading,
     }
+
+    expires_at = _compute_expires_at(body.expires_in)
+    if expires_at:
+        row_data["expires_at"] = expires_at
 
     try:
         resp = await asyncio.to_thread(
@@ -194,6 +239,16 @@ async def get_document(
     """Get a single document by slug."""
     client = get_admin_client()
     row = await find_document(client, slug, auth)
+
+    # Check expiration
+    if row.get("expires_at"):
+        from datetime import datetime as dt
+        expires = row["expires_at"]
+        if isinstance(expires, str):
+            expires = dt.fromisoformat(expires.replace("Z", "+00:00"))
+        if dt.now(timezone.utc) > expires:
+            raise HTTPException(status_code=410, detail="Document has expired")
+
     content = await fetch_content(client, row["storage_path"])
     return _to_response(row, content)
 
@@ -204,12 +259,23 @@ async def update_document(
     body: DocumentUpdate,
     auth: ApiKeyAuth = Depends(get_api_key),
 ) -> DocumentResponse:
-    """Update an existing document."""
+    """Update an existing document. Saves a revision before updating."""
     if not body.content and body.filename is None and body.title is None and body.is_private is None:
         raise HTTPException(status_code=400, detail="No fields to update")
 
     client = get_admin_client()
     row = await find_document(client, slug, auth)
+
+    # Save current state as a revision before updating
+    if body.content:
+        from app.v1.revisions import save_revision
+        current_content = await fetch_content(client, row["storage_path"])
+        await save_revision(
+            row["id"],
+            current_content,
+            filename=row.get("filename"),
+            title=row.get("title"),
+        )
 
     update_data: dict = {}
     if body.content:
@@ -223,6 +289,10 @@ async def update_document(
         update_data["title"] = body.title
     if body.is_private is not None:
         update_data["is_private"] = body.is_private
+    if body.encryption_iv is not None:
+        update_data["encryption_iv"] = body.encryption_iv
+    if body.encryption_salt is not None:
+        update_data["encryption_salt"] = body.encryption_salt
 
     try:
         if body.content:

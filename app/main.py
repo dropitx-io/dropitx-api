@@ -39,6 +39,8 @@ _tags_metadata = [
     {"name": "Search", "description": "Public full-text search across shares."},
     {"name": "Analytics", "description": "Anonymous view tracking. Always returns 200."},
     {"name": "oEmbed", "description": "oEmbed discovery endpoint for share embedding."},
+    {"name": "Comments", "description": "Discussion and comments on shares. Supports nested replies. Anonymous with optional nickname."},
+    {"name": "QR Code", "description": "Generate QR code images for share URLs."},
 ]
 
 app = FastAPI(
