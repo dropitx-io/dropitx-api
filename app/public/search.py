@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import JSONResponse
 
 from core.supabase import get_admin_client
 from models.share import SearchResult
@@ -48,9 +49,11 @@ async def search_shares(
 
     results = [SearchResult(**row) for row in rows]
 
-    return {
-        "results": results,
+    response = JSONResponse(content={
+        "results": [r.model_dump() for r in results],
         "page": page,
         "limit": limit,
         "total": len(results),
-    }
+    })
+    response.headers["cache-control"] = "public, max-age=30, stale-while-revalidate=60"
+    return response

@@ -7,6 +7,7 @@ import logging
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 
 from app.dependencies import get_client_ip
 from core.config import settings
@@ -115,7 +116,7 @@ async def oembed(
 
     title = share.get("title") or share.get("filename") or slug
 
-    return {
+    response = JSONResponse(content={
         "type": "rich",
         "version": "1.0",
         "title": title,
@@ -125,4 +126,6 @@ async def oembed(
         "provider_name": "DropItX",
         "provider_url": base_url,
         "author_name": author_name,
-    }
+    })
+    response.headers["cache-control"] = "public, max-age=3600"
+    return response
