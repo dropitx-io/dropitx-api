@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, Request, UploadFile
 from fastapi.exceptions import HTTPException
@@ -40,11 +41,27 @@ _MAX_SIZE = 50 * 1024 * 1024  # 50 MB
 class UploadResponse:
     """Response model for upload endpoint."""
 
-    def __init__(self, slug: str, url: str, filename: str, deleteToken: str):
+    def __init__(
+        self,
+        slug: str,
+        url: str,
+        filename: str,
+        deleteToken: str,
+        encrypted: bool = False,
+        encryption_iv: str | None = None,
+        encryption_salt: str | None = None,
+        burn_after_reading: bool = False,
+        expires_at: str | None = None,
+    ):
         self.slug = slug
         self.url = url
         self.filename = filename
         self.deleteToken = deleteToken
+        self.encrypted = encrypted
+        self.encryption_iv = encryption_iv
+        self.encryption_salt = encryption_salt
+        self.burn_after_reading = burn_after_reading
+        self.expires_at = expires_at
 
     def dict(self) -> dict:
         return {
@@ -52,6 +69,11 @@ class UploadResponse:
             "url": self.url,
             "filename": self.filename,
             "deleteToken": self.deleteToken,
+            "encrypted": self.encrypted,
+            "encryption_iv": self.encryption_iv,
+            "encryption_salt": self.encryption_salt,
+            "burn_after_reading": self.burn_after_reading,
+            "expires_at": self.expires_at,
         }
 
 
@@ -60,13 +82,34 @@ async def upload(
     request: Request,
     file: UploadFile,
     user: User | None = Depends(get_optional_user),
+    # Query params for optional features
+    encrypted: bool = False,
+    encryption_iv: str | None = None,
+    encryption_salt: str | None = None,
+    burn_after_reading: bool = False,
+    expires_in: int | None = None,
 ) -> dict:
-    """Upload an HTML or Markdown file. Optional auth for linking to user."""
+    """Upload an HTML or Markdown file. Optional auth for linking to user.
+
+    Query params for optional features:
+    - encrypted: mark content as E2E encrypted
+    - encryption_iv: base64 AES-GCM IV
+    - encryption_salt: base64 PBKDF2 salt
+    - burn_after_reading: delete after first view
+    - expires_in: seconds until auto-expiry
+    """
     # Rate limit
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
+
+    # Validate encryption params
+    if encrypted and (not encryption_iv or not encryption_salt):
+        raise HTTPException(
+            status_code=400,
+            detail="encryption_iv and encryption_salt are required when encrypted=true",
+        )
 
     # Validate file type
     content_type = _resolve_content_type(file)
@@ -105,35 +148,49 @@ async def upload(
         logger.error("Storage upload failed for slug=%s: %s", slug, exc)
         raise HTTPException(status_code=500, detail="Failed to upload file") from exc
 
-    # Extract plain text for search
-    content_str = content_bytes.decode("utf-8", errors="replace")
-    plain_text = (
-        extract_text_from_html(content_str)
-        if ext == "html"
-        else extract_text_from_markdown(content_str)
-    )
+    # Extract plain text for search (skip if encrypted — server shouldn't see plaintext)
+    if encrypted:
+        plain_text = ""
+    else:
+        content_str = content_bytes.decode("utf-8", errors="replace")
+        plain_text = (
+            extract_text_from_html(content_str)
+            if ext == "html"
+            else extract_text_from_markdown(content_str)
+        )
+
+    # Compute expiration
+    expires_at = None
+    if expires_in is not None:
+        expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
 
     # Insert into shares table
     share_url = f"{settings.supabase_url}/storage/v1/object/public/html-files/{storage_path}"
     filename = file.filename or f"upload.{ext}"
 
     try:
+        share_data = {
+            "slug": slug,
+            "user_id": user.id if user else None,
+            "storage_path": storage_path,
+            "filename": filename,
+            "title": None,
+            "is_private": False,
+            "delete_token": delete_token,
+            "content_text": plain_text[:5000],
+            "file_size": len(content_bytes),
+            "mime_type": content_type,
+            "source": "upload",
+            "encrypted": encrypted,
+            "encryption_iv": encryption_iv,
+            "encryption_salt": encryption_salt,
+            "burn_after_reading": burn_after_reading,
+        }
+        if expires_at:
+            share_data["expires_at"] = expires_at
+
         await asyncio.to_thread(
-            lambda: client.table("shares").insert(
-                {
-                    "slug": slug,
-                    "user_id": user.id if user else None,
-                    "storage_path": storage_path,
-                    "filename": filename,
-                    "title": None,
-                    "is_private": False,
-                    "delete_token": delete_token,
-                    "content_text": plain_text[:5000],
-                    "file_size": len(content_bytes),
-                    "mime_type": content_type,
-                    "source": "upload",
-                }
-            ).execute(),
+            lambda: client.table("shares").insert(share_data).execute(),
         )
     except Exception as exc:
         logger.error("DB insert failed for slug=%s: %s", slug, exc)
@@ -146,6 +203,11 @@ async def upload(
         url=share_url,
         filename=filename,
         deleteToken=delete_token,
+        encrypted=encrypted,
+        encryption_iv=encryption_iv,
+        encryption_salt=encryption_salt,
+        burn_after_reading=burn_after_reading,
+        expires_at=expires_at,
     )
     return resp.dict()
 

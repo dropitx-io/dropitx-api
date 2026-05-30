@@ -37,6 +37,11 @@ class ShareBase(BaseModel):
     encryption_salt: str | None = None
     # Burn after reading
     burn_after_reading: bool = False
+    # Download limit (A3)
+    max_downloads: int | None = None
+    download_count: int = 0
+    # Group (A1)
+    group_id: str | None = None
 
 
 class ShareResponse(ShareBase):
@@ -64,6 +69,8 @@ class ShareCreate(BaseModel):
     encryption_salt: str | None = None
     # Burn after reading
     burn_after_reading: bool = False
+    # Download limit (A3)
+    max_downloads: int | None = None
 
 
 class ShareUpdate(BaseModel):

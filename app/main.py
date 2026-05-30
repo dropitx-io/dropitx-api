@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 import time
@@ -35,12 +36,10 @@ _tags_metadata = [
     {"name": "Upload", "description": "Upload HTML/Markdown files for sharing. Optional JWT auth."},
     {"name": "Publish", "description": "Publish editor content as a shareable URL. Requires JWT."},
     {"name": "Images", "description": "Upload embedded images for the editor. Requires JWT."},
-    {"name": "Shares", "description": "Public share operations — delete, password protect, unlock."},
+    {"name": "Shares", "description": "Public share operations — view content, delete, password protect, unlock."},
     {"name": "Search", "description": "Public full-text search across shares."},
     {"name": "Analytics", "description": "Anonymous view tracking. Always returns 200."},
     {"name": "oEmbed", "description": "oEmbed discovery endpoint for share embedding."},
-    {"name": "Comments", "description": "Discussion and comments on shares. Supports nested replies. Anonymous with optional nickname."},
-    {"name": "QR Code", "description": "Generate QR code images for share URLs."},
 ]
 
 app = FastAPI(
@@ -48,15 +47,15 @@ app = FastAPI(
     description=(
         "Backend for DropItX — a file and text sharing platform with team collaboration.\n\n"
         "**Authentication methods:**\n"
-        "- **JWT (Supabase Auth):** `Authorization: Bearer ***` — used for dashboard, upload, publish, and image endpoints\n"
-        "- **API Key:** `Authorization: Bearer shk_...` or `sht_...` — used for v1 document endpoints\n\n"
+        "- **JWT (Supabase Auth):** `Authorization: Bearer *** — used for dashboard, upload, publish, and image endpoints\n"
+        "- **API Key:** `Authorization: Bearer *** or `sht_...` — used for v1 document endpoints\n\n"
         "**Rate limiting:**\n"
         "- Upload/publish: per-IP, configurable\n"
         "- Analytics: 60/min per IP (fail-open)\n"
         "- oEmbed: 60/min per IP (fail-open)\n"
         "- Password unlock: 5 per 10min per IP+slug"
     ),
-    version="0.2.0",
+    version="0.3.0",
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_tags=_tags_metadata,
@@ -147,6 +146,17 @@ app.include_router(public_router, prefix="/api")
 app.include_router(internal_router, prefix="/api")
 
 # ---------------------------------------------------------------------------
+# Background cleanup service
+# ---------------------------------------------------------------------------
+
+@app.on_event("startup")
+async def start_cleanup_service():
+    """Start the background cleanup loop for expired shares and old revisions."""
+    from app.services.cleanup import run_cleanup_loop
+    asyncio.create_task(run_cleanup_loop())
+    logger.info("Background cleanup service started")
+
+# ---------------------------------------------------------------------------
 # Health endpoints
 # ---------------------------------------------------------------------------
 
@@ -159,7 +169,6 @@ async def health_check():
 @app.get("/health/deep", tags=["Health"])
 async def deep_health_check():
     """Deep health probe — verifies Supabase database connectivity and latency."""
-    import asyncio
     from core.supabase import get_admin_client
 
     checks: dict = {}
