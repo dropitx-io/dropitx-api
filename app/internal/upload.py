@@ -12,8 +12,10 @@ from pydantic import BaseModel
 from app.dependencies import User, get_client_ip, get_optional_user
 from core.config import settings
 from core.extract_text import extract_text_from_html, extract_text_from_markdown
+from core.language_detect import detect_language, get_all_languages
 from core.nanoid import generate_delete_token, generate_slug
 from core.rate_limit import check_upload_rate_limit
+from core.security import hash_password
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -134,7 +136,10 @@ class UploadResponse:
         encryption_iv: str | None = None,
         encryption_salt: str | None = None,
         burn_after_reading: bool = False,
+        one_time_download: bool = False,
         expires_at: str | None = None,
+        password_protected: bool = False,
+        language: str | None = None,
     ):
         self.slug = slug
         self.url = url
@@ -144,7 +149,10 @@ class UploadResponse:
         self.encryption_iv = encryption_iv
         self.encryption_salt = encryption_salt
         self.burn_after_reading = burn_after_reading
+        self.one_time_download = one_time_download
         self.expires_at = expires_at
+        self.password_protected = password_protected
+        self.language = language
 
     def dict(self) -> dict:
         return {
@@ -156,7 +164,10 @@ class UploadResponse:
             "encryption_iv": self.encryption_iv,
             "encryption_salt": self.encryption_salt,
             "burn_after_reading": self.burn_after_reading,
+            "one_time_download": self.one_time_download,
             "expires_at": self.expires_at,
+            "password_protected": self.password_protected,
+            "language": self.language,
         }
 
 
@@ -177,8 +188,11 @@ async def upload(
     encryption_iv: str | None = None,
     encryption_salt: str | None = None,
     burn_after_reading: bool = False,
+    one_time_download: bool = False,
     expires_in: str | None = Form(default=None),
     max_downloads: int | None = Form(default=None),
+    password: str | None = Form(default=None, max_length=128),
+    language: str | None = Form(default=None, description="Programming language for syntax highlighting"),
 ) -> dict:
     """Upload a file. Optional auth for linking to user."""
     # Rate limit
@@ -188,11 +202,8 @@ async def upload(
         raise HTTPException(status_code=429, detail="Rate limit exceeded")
 
     # Validate encryption params
-    if encrypted and (not encryption_iv or not encryption_salt):
-        raise HTTPException(
-            status_code=400,
-            detail="encryption_iv and encryption_salt are required when encrypted=true",
-        )
+    # Note: IV and salt are packed into the ciphertext by the client's crypto.ts,
+    # so they're optional metadata fields. The actual IV/salt are in the encrypted content.
 
     # Validate file type
     content_type = _resolve_content_type(file)
@@ -225,6 +236,13 @@ async def upload(
     ext = _ALLOWED_TYPES[content_type]
     storage_path = f"shares/{slug}.{ext}"
     delete_token = generate_delete_token()
+
+    # Detect language for syntax highlighting
+    detected_language = detect_language(
+        filename=file.filename,
+        mime_type=content_type,
+        explicit_language=language,
+    )
 
     # Upload to Supabase Storage
     client = get_admin_client()
@@ -273,10 +291,15 @@ async def upload(
         "encryption_iv": encryption_iv,
         "encryption_salt": encryption_salt,
         "burn_after_reading": burn_after_reading,
+        "one_time_download": one_time_download,
         "expires_at": expires_at,
     }
+    if detected_language:
+        row_data["language"] = detected_language
     if max_downloads is not None:
         row_data["max_downloads"] = max_downloads
+    if password:
+        row_data["password_hash"] = hash_password(password)
 
     try:
         await asyncio.to_thread(
@@ -287,6 +310,10 @@ async def upload(
         await _cleanup_storage(storage_path)
         raise HTTPException(status_code=500, detail="Failed to save share") from exc
 
+    # Generate thumbnail for images (fire-and-forget)
+    from core.thumbnail import maybe_generate_thumbnail
+    asyncio.create_task(maybe_generate_thumbnail(content_bytes, content_type, storage_path))
+
     resp = UploadResponse(
         slug=slug,
         url=share_url,
@@ -296,7 +323,10 @@ async def upload(
         encryption_iv=encryption_iv,
         encryption_salt=encryption_salt,
         burn_after_reading=burn_after_reading,
+        one_time_download=one_time_download,
         expires_at=expires_at,
+        password_protected=bool(password),
+        language=detected_language,
     )
     return resp.dict()
 
@@ -308,6 +338,7 @@ async def upload_batch(
     user: User | None = Depends(get_optional_user),
     max_downloads: int | None = Form(default=None),
     expires_in: str | None = Form(default=None),
+    password: str | None = Form(default=None, max_length=128),
 ) -> dict:
     """Upload multiple files as a group (A1). Returns group slug + individual file URLs."""
     if not files:
@@ -422,6 +453,8 @@ async def upload_batch(
         }
         if max_downloads is not None:
             row_data["max_downloads"] = max_downloads
+        if password:
+            row_data["password_hash"] = hash_password(password)
 
         try:
             await asyncio.to_thread(
@@ -431,6 +464,10 @@ async def upload_batch(
             logger.error("DB insert failed for slug=%s: %s", slug, exc)
             await _cleanup_batch(uploaded_paths, group_slug, client)
             raise HTTPException(status_code=500, detail=f"Failed to save {file.filename}") from exc
+
+        # Generate thumbnail for images (fire-and-forget)
+        from core.thumbnail import maybe_generate_thumbnail
+        asyncio.create_task(maybe_generate_thumbnail(content_bytes, content_type, storage_path))
 
         uploaded_files.append({
             "slug": slug,

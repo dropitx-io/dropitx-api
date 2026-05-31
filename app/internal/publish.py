@@ -13,8 +13,10 @@ from pydantic import BaseModel, Field
 from app.dependencies import User, get_client_ip, get_current_user
 from core.config import settings
 from core.extract_text import extract_text_from_html
+from core.language_detect import detect_language
 from core.nanoid import generate_delete_token, generate_slug
 from core.rate_limit import check_upload_rate_limit
+from core.security import hash_password
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -36,6 +38,12 @@ class PublishRequest(BaseModel):
     encryption_salt: str | None = None
     # Burn after reading
     burn_after_reading: bool = False
+    # One-time download (file.io style)
+    one_time_download: bool = False
+    # Password protection
+    password: str | None = Field(default=None, max_length=128)
+    # Language for syntax highlighting
+    language: str | None = Field(default=None, description="Programming language for syntax highlighting")
 
 
 class PublishResponse(BaseModel):
@@ -50,8 +58,14 @@ class PublishResponse(BaseModel):
     encryption_salt: str | None = None
     # Burn after reading
     burn_after_reading: bool = False
+    # One-time download
+    one_time_download: bool = False
     # Expiration
     expires_at: str | None = None
+    # Password protection
+    password_protected: bool = False
+    # Language for syntax highlighting
+    language: str | None = None
 
 
 @router.post("/publish", response_model=PublishResponse, tags=["Publish"])
@@ -112,6 +126,12 @@ async def publish(
         # Default 30 days
         expires_at = (datetime.now(timezone.utc) + timedelta(seconds=2592000)).isoformat()
 
+    # Detect language for syntax highlighting
+    detected_language = detect_language(
+        filename=body.filename,
+        explicit_language=body.language,
+    )
+
     try:
         share_data: dict = {
             "slug": slug,
@@ -129,10 +149,15 @@ async def publish(
             "encryption_iv": body.encryption_iv,
             "encryption_salt": body.encryption_salt,
             "burn_after_reading": body.burn_after_reading,
+            "one_time_download": body.one_time_download,
             "expires_at": expires_at,
         }
+        if detected_language:
+            share_data["language"] = detected_language
         if body.max_downloads is not None:
             share_data["max_downloads"] = body.max_downloads
+        if body.password:
+            share_data["password_hash"] = hash_password(body.password)
 
         await asyncio.to_thread(
             lambda: client.table("shares").insert(share_data).execute(),
@@ -153,7 +178,10 @@ async def publish(
         encryption_iv=body.encryption_iv,
         encryption_salt=body.encryption_salt,
         burn_after_reading=body.burn_after_reading,
+        one_time_download=body.one_time_download,
         expires_at=expires_at,
+        password_protected=bool(body.password),
+        language=detected_language,
     )
 
 

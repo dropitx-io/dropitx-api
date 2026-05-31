@@ -14,6 +14,7 @@ from core.config import settings
 from core.extract_text import extract_text_from_html, extract_text_from_markdown
 from core.nanoid import generate_delete_token, generate_slug
 from core.rate_limit import check_upload_rate_limit
+from core.security import hash_password
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -59,6 +60,7 @@ async def multi_upload(
     title: str | None = Form(None),
     custom_slug: str | None = Form(None),
     is_private: bool = Form(False),
+    password: str | None = Form(default=None, max_length=128),
     user: User | None = Depends(get_optional_user),
 ) -> MultiFileResponse:
     """Upload multiple HTML/Markdown files under a single share URL."""
@@ -151,6 +153,7 @@ async def multi_upload(
                     "file_size": sum(f["file_size"] for f in file_records),
                     "mime_type": first_file["mime_type"],
                     "source": "upload",
+                    "password_hash": hash_password(password) if password else None,
                 }
             ).execute(),
         )
