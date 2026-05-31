@@ -1,12 +1,14 @@
-"""Public share endpoints — view content, delete, set-password, unlock."""
+"""Public share endpoints — view content, delete, set-password, unlock, download."""
 
 from __future__ import annotations
 
 import asyncio
+import io
 import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.dependencies import User, get_client_ip, get_current_user
@@ -142,8 +144,12 @@ async def get_share_content(
     - Password protection (returns 403 with password_protected=true)
     - Burn-after-reading (deletes after first view)
     - E2E encryption metadata passthrough
+    - Download limit enforcement
     """
     row = await _fetch_share(slug)
+
+    # Check download limit
+    _check_download_limit(row)
 
     # Check password protection
     if row.get("password_hash"):
@@ -196,6 +202,47 @@ async def get_share_content(
         is_private=row.get("is_private", False),
         password_protected=False,
     ).model_dump()
+
+
+async def _increment_download_count(share_id: str) -> None:
+    """Increment download count for a share (fire-and-forget)."""
+    try:
+        client = get_admin_client()
+        await asyncio.to_thread(
+            lambda: client.rpc("increment_download_count", {"share_id": share_id}).execute()
+        )
+    except Exception:
+        # Fallback: direct update
+        try:
+            client = get_admin_client()
+            resp = await asyncio.to_thread(
+                lambda: client.table("shares")
+                .select("download_count")
+                .eq("id", share_id)
+                .execute()
+            )
+            if resp.data:
+                current = resp.data[0].get("download_count", 0)
+                await asyncio.to_thread(
+                    lambda: client.table("shares")
+                    .update({"download_count": current + 1})
+                    .eq("id", share_id)
+                    .execute()
+                )
+        except Exception:
+            logger.warning("Failed to increment download count for %s", share_id, exc_info=True)
+
+
+def _check_download_limit(row: dict) -> None:
+    """Raise 429 if the share has reached its max_downloads limit."""
+    max_dl = row.get("max_downloads")
+    if max_dl is not None and max_dl > 0:
+        current_dl = row.get("download_count", 0)
+        if current_dl >= max_dl:
+            raise HTTPException(
+                status_code=410,
+                detail=f"Download limit reached ({max_dl} downloads)",
+            )
 
 
 async def _increment_view_count(share_id: str) -> None:
@@ -309,6 +356,9 @@ async def unlock_share(
 
     row = await _fetch_share(slug)
 
+    # Check download limit
+    _check_download_limit(row)
+
     stored_hash = row.get("password_hash")
     if not stored_hash:
         raise HTTPException(status_code=400, detail="Share is not password-protected")
@@ -391,3 +441,83 @@ async def burn_share(
     logger.info("Share %s burned", slug)
 
     return {"detail": "Share burned", "slug": slug}
+
+
+# ---------------------------------------------------------------------------
+# GET /shares/{slug}/download — download share as file attachment
+# ---------------------------------------------------------------------------
+
+@router.get("/shares/{slug}/download", tags=["Shares"], summary="Download share as file")
+async def download_share(
+    slug: str,
+    request: Request,
+    password: str | None = None,
+):
+    """Download a share's content as a file attachment.
+
+    - Checks max_downloads limit
+    - Increments download_count
+    - Handles burn-after-reading (burns after download)
+    - Supports ?password= query param for password-protected shares
+    """
+    row = await _fetch_share(slug)
+
+    # Check download limit BEFORE serving
+    _check_download_limit(row)
+
+    # Check password protection
+    if row.get("password_hash"):
+        if not password:
+            raise HTTPException(
+                status_code=403,
+                detail="Password required. Pass ?password=YOUR_PASSWORD",
+            )
+        if not verify_password(password, row["password_hash"]):
+            # Rate limit password attempts
+            ip = get_client_ip(request)
+            rate = check_password_rate_limit(ip, slug)
+            if not rate.success:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Too many attempts. Try again later.",
+                    headers={"Retry-After": str(max(rate.reset, 1))},
+                )
+            raise HTTPException(status_code=401, detail="Incorrect password")
+
+    # Fetch content from storage
+    client = get_admin_client()
+    storage_path = row["storage_path"]
+    source = row.get("source", "")
+    bucket = "html-files" if source in ("upload", "editor") else "shares"
+
+    try:
+        resp = await asyncio.to_thread(
+            lambda: client.storage.from_(bucket).download(storage_path),
+        )
+        content_bytes = resp if isinstance(resp, bytes) else str(resp).encode("utf-8")
+    except Exception as exc:
+        logger.error("Download failed for %s: %s", storage_path, exc)
+        raise HTTPException(status_code=500, detail="Failed to download content") from exc
+
+    # Increment download count
+    asyncio.create_task(_increment_download_count(row["id"]))
+
+    # Increment view count
+    asyncio.create_task(_increment_view_count(row["id"]))
+
+    # Burn after reading
+    if row.get("burn_after_reading"):
+        asyncio.create_task(_delete_share_row(row))
+
+    # Determine filename
+    filename = row.get("filename") or f"{slug}.html"
+    mime_type = row.get("mime_type", "text/html; charset=utf-8")
+
+    return StreamingResponse(
+        io.BytesIO(content_bytes),
+        media_type=mime_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Length": str(len(content_bytes)),
+        },
+    )

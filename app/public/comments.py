@@ -19,8 +19,9 @@ router = APIRouter()
 
 class CommentCreate(BaseModel):
     """Request to add a comment."""
-    author_name: str = Field(..., min_length=1, max_length=100)
+    author_name: str = Field(default="Anonymous", max_length=100)
     content: str = Field(..., min_length=1, max_length=5000)
+    parent_id: str | None = None
 
 
 class CommentResponse(BaseModel):
@@ -31,6 +32,7 @@ class CommentResponse(BaseModel):
     content: str
     created_at: str
     user_id: str | None = None
+    parent_id: str | None = None
 
 
 class CommentListResponse(BaseModel):
@@ -91,6 +93,7 @@ async def list_comments(
             content=r["content"],
             created_at=r["created_at"],
             user_id=r.get("user_id"),
+            parent_id=r.get("parent_id"),
         )
         for r in rows
     ]
@@ -140,6 +143,7 @@ async def add_comment(
         "user_id": user.id if user else None,
         "author_name": body.author_name,
         "content": body.content,
+        "parent_id": body.parent_id,
     }
 
     try:
@@ -161,4 +165,5 @@ async def add_comment(
         content=body.content,
         created_at=row.get("created_at", ""),
         user_id=user.id if user else None,
+        parent_id=body.parent_id,
     )
