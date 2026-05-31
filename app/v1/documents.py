@@ -40,6 +40,8 @@ class DocumentCreate(BaseModel):
     encryption_salt: str | None = None
     # Burn after reading
     burn_after_reading: bool = False
+    # One-time download (file.io style)
+    one_time_download: bool = False
     # Expiration
     expires_in: int | None = Field(default=None, description="Seconds until expiry")
 
@@ -70,6 +72,8 @@ class DocumentResponse(BaseModel):
     encryption_salt: str | None = None
     # Burn after reading
     burn_after_reading: bool = False
+    # One-time download
+    one_time_download: bool = False
     # Expiration
     expires_at: datetime | None = None
 
@@ -90,6 +94,7 @@ def _to_response(row: dict, content: str) -> DocumentResponse:
         encryption_iv=row.get("encryption_iv"),
         encryption_salt=row.get("encryption_salt"),
         burn_after_reading=row.get("burn_after_reading", False),
+        one_time_download=row.get("one_time_download", False),
         expires_at=row.get("expires_at"),
     )
 
@@ -153,6 +158,7 @@ async def create_document(
         "encryption_iv": body.encryption_iv,
         "encryption_salt": body.encryption_salt,
         "burn_after_reading": body.burn_after_reading,
+        "one_time_download": body.one_time_download,
     }
 
     expires_at = _compute_expires_at(body.expires_in)

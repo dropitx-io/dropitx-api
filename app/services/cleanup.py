@@ -5,13 +5,59 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timezone
-
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
 
 # How often to run cleanup (seconds)
 CLEANUP_INTERVAL = 300  # 5 minutes
+
+
+async def cleanup_expired_file_requests() -> int:
+    """Delete file request uploads for expired requests.
+    
+    The file_requests row itself is kept (for history), but uploaded files
+    in storage are removed to save space.
+    Returns the number of uploads cleaned up.
+    """
+    client = get_admin_client()
+    now = datetime.now(timezone.utc).isoformat()
+    
+    try:
+        # Find expired requests that still have uploads
+        resp = await asyncio.to_thread(
+            lambda: client.table("file_requests")
+            .select("id")
+            .not_.is_("expires_at", "null")
+            .lt("expires_at", now)
+            .eq("is_active", True)
+            .limit(50)
+            .execute(),
+        )
+        rows = resp.data or []
+    except Exception as exc:
+        logger.error("Failed to query expired file requests: %s", exc)
+        return 0
+    
+    if not rows:
+        return 0
+    
+    deleted = 0
+    for row in rows:
+        try:
+            # Deactivate the request
+            await asyncio.to_thread(
+                lambda rid=row["id"]: client.table("file_requests")
+                .update({"is_active": False})
+                .eq("id", rid)
+                .execute(),
+            )
+            deleted += 1
+            logger.info("Deactivated expired file request %s", row["id"])
+        except Exception as exc:
+            logger.error("Failed to deactivate file request %s: %s", row.get("id"), exc)
+    
+    return deleted
 
 
 async def cleanup_expired_shares() -> int:
@@ -134,6 +180,10 @@ async def run_cleanup_loop() -> None:
             revisions = await cleanup_old_revisions()
             if revisions:
                 logger.info("Cleanup: deleted %d old revisions", revisions)
+
+            file_requests = await cleanup_expired_file_requests()
+            if file_requests:
+                logger.info("Cleanup: deactivated %d expired file requests", file_requests)
         except Exception as exc:
             logger.error("Cleanup loop error: %s", exc, exc_info=True)
 

@@ -12,6 +12,7 @@ dependencies = [
     "bcrypt>=4.2.0",
     "python-multipart>=0.0.18",
     "httpx>=0.28.0",
+    "cryptography>=42.0.0",
 ]
 
 [project.optional-dependencies]
@@ -23,7 +24,10 @@ dev = [
 
 [build-system]
 requires = ["setuptools>=75.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*", "core*", "models*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -30,6 +30,7 @@ _tags_metadata = [
     {"name": "Documents", "description": "Document CRUD operations. Authenticated via API key (`shk_` / `sht_` prefix)."},
     {"name": "API Keys", "description": "Create, list, and revoke API keys. Authenticated via JWT."},
     {"name": "Teams", "description": "Team and member management. Authenticated via JWT."},
+    {"name": "Custom Domains", "description": "Custom domain configuration for teams. Authenticated via JWT."},
     {"name": "Team Invites", "description": "Team invitation lifecycle — create, list, revoke, resend, bulk invite."},
     {"name": "Team Events & Shares", "description": "Audit events and shared content within a team."},
     {"name": "Invitations", "description": "List, accept, and decline invitations received by the current user."},
@@ -38,9 +39,15 @@ _tags_metadata = [
     {"name": "Publish", "description": "Publish editor content as a shareable URL. Requires JWT."},
     {"name": "Images", "description": "Upload embedded images for the editor. Requires JWT."},
     {"name": "Shares", "description": "Public share operations — view content, delete, password protect, unlock."},
+    {"name": "Encryption", "description": "E2E encryption for shares — AES-256-GCM, PBKDF2 key derivation, password-based encryption. Zero-knowledge model."},
     {"name": "Search", "description": "Public full-text search across shares."},
     {"name": "Analytics", "description": "Anonymous view tracking. Always returns 200."},
     {"name": "oEmbed", "description": "oEmbed discovery endpoint for share embedding."},
+    {"name": "Preview", "description": "File preview before download — images, PDF, code, markdown, video/audio, text."},
+    {"name": "Explore", "description": "Public gallery — discover trending shares, filter by tags."},
+    {"name": "Stars", "description": "Star/unstar public shares. Requires JWT for starring."},
+    {"name": "Profiles", "description": "Public user profiles and their shared content."},
+    {"name": "File Requests", "description": "Create request links that let others upload files to you. Inspired by WeTransfer 'Transfer to me'."},
 ]
 
 app = FastAPI(

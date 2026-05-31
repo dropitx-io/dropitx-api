@@ -40,6 +40,8 @@ class ShareBase(BaseModel):
     # Download limit (A3)
     max_downloads: int | None = None
     download_count: int = 0
+    # One-time download (file.io style)
+    one_time_download: bool = False
     # Group (A1)
     group_id: str | None = None
 
@@ -71,6 +73,8 @@ class ShareCreate(BaseModel):
     burn_after_reading: bool = False
     # Download limit (A3)
     max_downloads: int | None = None
+    # One-time download (file.io style)
+    one_time_download: bool = False
 
 
 class ShareUpdate(BaseModel):

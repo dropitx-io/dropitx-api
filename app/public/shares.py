@@ -60,6 +60,7 @@ class ShareContentResponse(BaseModel):
     burned: bool = False
     is_private: bool = False
     password_protected: bool = False
+    language: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +85,10 @@ async def _fetch_share(slug: str) -> dict:
     # Check if burned
     if row.get("burned"):
         raise HTTPException(status_code=410, detail="Share has been burned")
+
+    # Check if one-time download has been consumed
+    if row.get("one_time_download") and (row.get("download_count", 0) >= 1):
+        raise HTTPException(status_code=410, detail="One-time download link has been consumed")
 
     # Check expiration
     if row.get("expires_at"):
@@ -165,6 +170,7 @@ async def get_share_content(
             burned=row.get("burned", False),
             is_private=row.get("is_private", False),
             password_protected=True,
+            language=row.get("language"),
         ).model_dump()
 
     # Fetch content from storage
@@ -189,6 +195,11 @@ async def get_share_content(
     if row.get("burn_after_reading"):
         asyncio.create_task(_delete_share_row(row))
 
+    # One-time download: auto-delete after first view
+    if row.get("one_time_download"):
+        asyncio.create_task(_increment_download_count(row["id"]))
+        asyncio.create_task(_delete_share_row(row))
+
     return ShareContentResponse(
         slug=row["slug"],
         filename=row.get("filename"),
@@ -201,6 +212,7 @@ async def get_share_content(
         burned=row.get("burned", False),
         is_private=row.get("is_private", False),
         password_protected=False,
+        language=row.get("language"),
     ).model_dump()
 
 
@@ -388,6 +400,11 @@ async def unlock_share(
     if row.get("burn_after_reading"):
         asyncio.create_task(_delete_share_row(row))
 
+    # One-time download: auto-delete after unlock
+    if row.get("one_time_download"):
+        asyncio.create_task(_increment_download_count(row["id"]))
+        asyncio.create_task(_delete_share_row(row))
+
     return {
         "detail": "Unlocked",
         "content": content,
@@ -509,6 +526,10 @@ async def download_share(
     if row.get("burn_after_reading"):
         asyncio.create_task(_delete_share_row(row))
 
+    # One-time download: auto-delete after first download
+    if row.get("one_time_download"):
+        asyncio.create_task(_delete_share_row(row))
+
     # Determine filename
     filename = row.get("filename") or f"{slug}.html"
     mime_type = row.get("mime_type", "text/html; charset=utf-8")
@@ -521,3 +542,96 @@ async def download_share(
             "Content-Length": str(len(content_bytes)),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /shares/{slug}/download-status — check download availability
+# ---------------------------------------------------------------------------
+
+@router.get("/shares/{slug}/download-status", tags=["Shares"], summary="Check download status")
+async def get_download_status(slug: str):
+    """Check if a share is available for download.
+
+    Returns status info including:
+    - available: whether the file can still be downloaded
+    - one_time_download: whether this is a one-time download link
+    - consumed: whether a one-time download link has been used
+    - download_count: current download count
+    - max_downloads: max allowed downloads (null = unlimited)
+    - burn_after_reading: whether the file burns after reading
+    - expired: whether the file has expired
+    """
+    client = get_admin_client()
+    try:
+        resp = await asyncio.to_thread(
+            lambda: client.table("shares")
+            .select("slug,one_time_download,download_count,max_downloads,burn_after_reading,expires_at,burned")
+            .eq("slug", slug)
+            .execute()
+        )
+    except Exception as exc:
+        logger.error("Download status query failed for %s: %s", slug, exc)
+        raise HTTPException(status_code=500, detail="Failed to check download status") from exc
+
+    rows = resp.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Share not found")
+
+    row = rows[0]
+
+    # Check if burned
+    if row.get("burned"):
+        return {
+            "slug": slug,
+            "available": False,
+            "status": "burned",
+            "one_time_download": row.get("one_time_download", False),
+            "consumed": True,
+            "download_count": row.get("download_count", 0),
+            "max_downloads": row.get("max_downloads"),
+            "burn_after_reading": True,
+            "expired": False,
+        }
+
+    # Check if one-time download consumed
+    if row.get("one_time_download") and row.get("download_count", 0) >= 1:
+        return {
+            "slug": slug,
+            "available": False,
+            "status": "consumed",
+            "one_time_download": True,
+            "consumed": True,
+            "download_count": row.get("download_count", 0),
+            "max_downloads": row.get("max_downloads"),
+            "burn_after_reading": row.get("burn_after_reading", False),
+            "expired": False,
+        }
+
+    # Check expiration
+    expired = False
+    if row.get("expires_at"):
+        expires_at = row["expires_at"]
+        if isinstance(expires_at, str):
+            expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+        if datetime.now(timezone.utc) > expires_at:
+            expired = True
+
+    # Check max downloads
+    max_dl = row.get("max_downloads")
+    download_count = row.get("download_count", 0)
+    limit_reached = max_dl is not None and max_dl > 0 and download_count >= max_dl
+
+    available = not expired and not limit_reached
+    status = "available" if available else ("expired" if expired else "limit_reached")
+
+    return {
+        "slug": slug,
+        "available": available,
+        "status": status,
+        "one_time_download": row.get("one_time_download", False),
+        "consumed": False,
+        "download_count": download_count,
+        "max_downloads": max_dl,
+        "burn_after_reading": row.get("burn_after_reading", False),
+        "expired": expired,
+    }
