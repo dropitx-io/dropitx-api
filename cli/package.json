@@ -1,0 +1,51 @@
+{
+  "name": "dropitx-cli",
+  "version": "1.0.0",
+  "description": "DropItX CLI - Share files from terminal",
+  "main": "index.js",
+  "bin": {
+    "dropitx": "./bin/dropitx.js"
+  },
+  "scripts": {
+    "test": "bash test.sh",
+    "prepublishOnly": "npm test"
+  },
+  "keywords": [
+    "cli",
+    "file-sharing",
+    "transfer",
+    "dropitx",
+    "upload",
+    "download",
+    "terminal",
+    "command-line"
+  ],
+  "author": "DropItX",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phuongddx/dropitx-api.git"
+  },
+  "bugs": {
+    "url": "https://github.com/phuongddx/dropitx-api/issues"
+  },
+  "homepage": "https://github.com/phuongddx/dropitx-api#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "cli-progress": "^3.12.0",
+    "commander": "^11.0.0",
+    "conf": "^10.2.0",
+    "form-data": "^4.0.0",
+    "node-fetch": "^2.6.9",
+    "ora": "^5.4.1"
+  }
+}

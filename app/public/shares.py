@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from app.dependencies import User, get_client_ip, get_current_user
+from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
 from core.rate_limit import check_password_rate_limit
 from core.security import hash_password, verify_password
 from core.supabase import get_admin_client
@@ -295,7 +295,7 @@ async def _increment_view_count(share_id: str) -> None:
 async def delete_share(
     slug: str,
     body: DeleteShareRequest | None = None,
-    user: User | None = Depends(get_current_user),
+    user: User | None = Depends(get_optional_user),
 ):
     """Delete a share. Auth: owner cookie OR delete_token in body."""
     body = body or DeleteShareRequest()
@@ -319,7 +319,7 @@ async def delete_share(
 async def set_password(
     slug: str,
     body: SetPasswordRequest,
-    user: User | None = Depends(get_current_user),
+    user: User | None = Depends(get_optional_user),
 ):
     """Set or clear a share password. Auth: owner OR delete_token."""
     row = await _fetch_share(slug)
@@ -427,7 +427,7 @@ async def unlock_share(
 async def burn_share(
     slug: str,
     body: BurnShareRequest | None = None,
-    user: User | None = Depends(get_current_user),
+    user: User | None = Depends(get_optional_user),
 ):
     """Burn a share — marks it as consumed. Returns 410 Gone if already burned.
 

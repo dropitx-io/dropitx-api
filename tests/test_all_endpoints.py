@@ -1,4 +1,4 @@
-"""Automated test for all 52 DropItX API endpoints.
+"""Automated test for all DropItX API endpoints.
 
 Tests endpoint existence and basic response codes WITHOUT a live Supabase connection.
 Uses ASGI transport to test FastAPI app directly.
@@ -18,7 +18,9 @@ PUBLIC (no auth):
   10. GET    /api/shares/{slug}/versions/{version_num}
   11. GET    /api/qr/{slug}
   12. GET    /api/shares/{slug}/download
-  13. GET    /api/shares/{slug}/files
+  13. GET    /api/shares/{slug}/preview
+  14. GET    /api/shares/{slug}/download-status
+  15. GET    /api/shares/{slug}/files
 
 OPTIONAL AUTH:
   14. POST   /api/upload
@@ -190,6 +192,16 @@ class TestPublicEndpoints:
     @pytest.mark.asyncio
     async def test_share_download_not_found(self, client):
         resp = await client.get(f"/api/shares/{FAKE_SLUG}/download")
+        assert resp.status_code in (404, 500)
+
+    @pytest.mark.asyncio
+    async def test_share_preview_not_found(self, client):
+        resp = await client.get(f"/api/shares/{FAKE_SLUG}/preview")
+        assert resp.status_code in (404, 500)
+
+    @pytest.mark.asyncio
+    async def test_share_download_status_not_found(self, client):
+        resp = await client.get(f"/api/shares/{FAKE_SLUG}/download-status")
         assert resp.status_code in (404, 500)
 
     @pytest.mark.asyncio
