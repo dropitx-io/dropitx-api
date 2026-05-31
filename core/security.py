@@ -62,14 +62,14 @@ def verify_supabase_jwt(token: str) -> dict:
         if not rsa_key:
             raise ValueError(f"No matching JWKS key for kid={kid}")
 
-        # Decode and verify using the RSA public key
-        # jose needs the key in PEM or dict form with 'kty', 'n', 'e'
+        # Decode and verify using the public key from JWKS
+        # Supports both RS256 (RSA) and ES256 (ECDSA) algorithms
+        alg = rsa_key.get("alg", "RS256")
         payload = jwt.decode(
             token,
             rsa_key,
-            algorithms=["RS256"],
-            audience=settings.supabase_url,
-            options={"verify_at_hash": False},
+            algorithms=[alg, "RS256", "ES256"],
+            options={"verify_aud": False, "verify_at_hash": False},
         )
         return payload
 

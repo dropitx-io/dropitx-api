@@ -34,6 +34,7 @@ _tags_metadata = [
     {"name": "Team Events & Shares", "description": "Audit events and shared content within a team."},
     {"name": "Invitations", "description": "List, accept, and decline invitations received by the current user."},
     {"name": "Upload", "description": "Upload HTML/Markdown files for sharing. Optional JWT auth."},
+    {"name": "Download", "description": "Bulk download endpoints — ZIP archives for file groups."},
     {"name": "Publish", "description": "Publish editor content as a shareable URL. Requires JWT."},
     {"name": "Images", "description": "Upload embedded images for the editor. Requires JWT."},
     {"name": "Shares", "description": "Public share operations — view content, delete, password protect, unlock."},

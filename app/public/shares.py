@@ -36,6 +36,11 @@ class UnlockRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class BurnShareRequest(BaseModel):
+    """Optional body for burn endpoint — allows delete_token auth."""
+    delete_token: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -50,6 +55,7 @@ class ShareContentResponse(BaseModel):
     encryption_iv: str | None = None
     encryption_salt: str | None = None
     burn_after_reading: bool = False
+    burned: bool = False
     is_private: bool = False
     password_protected: bool = False
 
@@ -72,6 +78,10 @@ async def _fetch_share(slug: str) -> dict:
         raise HTTPException(status_code=404, detail="Share not found")
 
     row = rows[0]
+
+    # Check if burned
+    if row.get("burned"):
+        raise HTTPException(status_code=410, detail="Share has been burned")
 
     # Check expiration
     if row.get("expires_at"):
@@ -146,6 +156,7 @@ async def get_share_content(
             encryption_iv=row.get("encryption_iv"),
             encryption_salt=row.get("encryption_salt"),
             burn_after_reading=row.get("burn_after_reading", False),
+            burned=row.get("burned", False),
             is_private=row.get("is_private", False),
             password_protected=True,
         ).model_dump()
@@ -181,6 +192,7 @@ async def get_share_content(
         encryption_iv=row.get("encryption_iv"),
         encryption_salt=row.get("encryption_salt"),
         burn_after_reading=row.get("burn_after_reading", False),
+        burned=row.get("burned", False),
         is_private=row.get("is_private", False),
         password_protected=False,
     ).model_dump()
@@ -336,4 +348,46 @@ async def unlock_share(
         "encryption_iv": row.get("encryption_iv"),
         "encryption_salt": row.get("encryption_salt"),
         "burn_after_reading": row.get("burn_after_reading", False),
+        "burned": row.get("burned", False),
     }
+
+
+# ---------------------------------------------------------------------------
+# POST /shares/{slug}/burn — mark share as burned (consumed)
+# ---------------------------------------------------------------------------
+
+@router.post("/shares/{slug}/burn", tags=["Shares"], summary="Burn a share (mark as consumed)")
+async def burn_share(
+    slug: str,
+    body: BurnShareRequest | None = None,
+    user: User | None = Depends(get_current_user),
+):
+    """Burn a share — marks it as consumed. Returns 410 Gone if already burned.
+
+    Auth: owner cookie OR delete_token in body.
+    """
+    body = body or BurnShareRequest()
+    row = await _fetch_share(slug)
+
+    # Check if already burned
+    if row.get("burned"):
+        raise HTTPException(status_code=410, detail="Share has already been burned")
+
+    # Authorization: require owner or delete_token
+    if user is None and not body.delete_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    _authorize_owner(row, user, body.delete_token)
+
+    # Mark as burned
+    client = get_admin_client()
+    await asyncio.to_thread(
+        lambda: client.table("shares")
+        .update({"burned": True})
+        .eq("id", row["id"])
+        .execute()
+    )
+
+    logger.info("Share %s burned", slug)
+
+    return {"detail": "Share burned", "slug": slug}

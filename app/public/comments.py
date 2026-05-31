@@ -41,7 +41,7 @@ class CommentListResponse(BaseModel):
     per_page: int
 
 
-@router.get("/comments/{slug}", response_model=CommentListResponse, tags=["Comments"])
+@router.get("/{slug}/comments", response_model=CommentListResponse, tags=["Comments"])
 async def list_comments(
     slug: str,
     page: int = Query(default=1, ge=1),
@@ -103,7 +103,7 @@ async def list_comments(
     )
 
 
-@router.post("/comments/{slug}", response_model=CommentResponse, tags=["Comments"])
+@router.post("/{slug}/comments", response_model=CommentResponse, tags=["Comments"])
 async def add_comment(
     slug: str,
     body: CommentCreate,
