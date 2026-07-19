@@ -126,9 +126,13 @@ async def publish(
         # Default 30 days
         expires_at = (datetime.now(timezone.utc) + timedelta(seconds=2592000)).isoformat()
 
-    # Detect language for syntax highlighting
+    # Derive filename so it's never None (matches text/html mime_type and storage_path).
+    filename = body.filename or f"{slug}.html"
+
+    # Detect language for syntax highlighting (use derived filename so editor
+    # publishes — which don't carry a filename — still get language detection)
     detected_language = detect_language(
-        filename=body.filename,
+        filename=filename,
         explicit_language=body.language,
     )
 
@@ -137,7 +141,7 @@ async def publish(
             "slug": slug,
             "user_id": user.id,
             "storage_path": storage_path,
-            "filename": body.filename,
+            "filename": filename,
             "title": body.title,
             "is_private": body.is_private,
             "delete_token": delete_token,
@@ -171,7 +175,7 @@ async def publish(
     return PublishResponse(
         slug=slug,
         url=share_url,
-        filename=body.filename,
+        filename=filename,
         title=body.title,
         custom_slug=body.custom_slug,
         encrypted=body.encrypted,
