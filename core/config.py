@@ -2,9 +2,20 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    supabase_url: str
-    supabase_anon_key: str
-    supabase_service_role_key: str
+    # --- Supabase (kept for Auth JWT verification only) ---
+    supabase_url: str = ""
+    supabase_anon_key: str = ""
+    supabase_service_role_key: str = ""
+
+    # --- Local PostgreSQL ---
+    database_url: str = "postgresql://dropitx:dropitx_local_dev@localhost:5432/dropitx"
+
+    # --- Local MinIO/S3 ---
+    s3_endpoint: str = "http://localhost:9000"
+    s3_access_key: str = "dropitx"
+    s3_secret_key: str = "dropitx_local_dev"
+
+    # --- App ---
     allowed_origins: str = "http://localhost:3000"
     frontend_url: str = "http://localhost:3000"
 

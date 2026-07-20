@@ -1,33 +1,10 @@
-"""Supabase client factory — three client types for different auth contexts."""
+"""Database client factory — local PostgreSQL + MinIO backend.
 
-from supabase import create_client, Client
+Re-exports get_admin_client/get_anon_client/get_user_client from core.db.
+The original supabase-py client is replaced by our PostgREST compat shim.
+Supabase Auth (JWT verification) still goes through cloud Supabase URL.
+"""
 
-from core.config import settings
+from core.db import get_admin_client, get_anon_client, get_user_client
 
-_client: Client | None = None
-
-
-def _get_base_client() -> Client:
-    """Lazy-init the base Supabase client (anon key, no user context)."""
-    global _client
-    if _client is None:
-        _client = create_client(settings.supabase_url, settings.supabase_anon_key)
-    return _client
-
-
-def get_user_client(access_token: str) -> Client:
-    """Per-request client with user JWT. RLS policies apply."""
-    client = _get_base_client()
-    client.postgrest.auth(access_token)
-    return client
-
-
-def get_admin_client() -> Client:
-    """Service-role client that bypasses RLS. Use ONLY for operations
-    requiring RLS bypass (admin tasks, internal workers)."""
-    return create_client(settings.supabase_url, settings.supabase_service_role_key)
-
-
-def get_anon_client() -> Client:
-    """Anonymous client for public endpoints (no user context)."""
-    return _get_base_client()
+__all__ = ["get_admin_client", "get_anon_client", "get_user_client"]

@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dropitx-pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dropitx
+      POSTGRES_PASSWORD: dropitx_local_dev
+      POSTGRES_DB: dropitx
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dropitx"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    container_name: dropitx-minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: dropitx
+      MINIO_ROOT_PASSWORD: dropitx_local_dev
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  createbuckets:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 dropitx dropitx_local_dev;
+      mc mb local/html-files --ignore-existing;
+      mc mb local/shares --ignore-existing;
+      mc anonymous set download local/html-files;
+      mc anonymous set download local/shares;
+      exit 0;
+      "
+
+volumes:
+  pgdata:
+  miniodata:
