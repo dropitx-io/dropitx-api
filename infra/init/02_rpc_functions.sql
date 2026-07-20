@@ -125,3 +125,18 @@ BEGIN
     RETURN QUERY SELECT v_id, p_team_id, p_email, p_role, p_token;
 END;
 $$ LANGUAGE plpgsql;
+
+-- =========================================================================
+-- Schema fixes discovered during testing
+-- =========================================================================
+
+-- team_members: add joined_at (alias for created_at), expand role CHECK
+ALTER TABLE team_members ADD COLUMN IF NOT EXISTS joined_at timestamptz DEFAULT now();
+UPDATE team_members SET joined_at = created_at WHERE joined_at IS NULL;
+ALTER TABLE team_members DROP CONSTRAINT IF EXISTS team_members_role_check;
+ALTER TABLE team_members ADD CONSTRAINT team_members_role_check 
+    CHECK (role = ANY(ARRAY['owner', 'editor', 'viewer', 'member', 'admin']));
+
+-- api_keys: add team_id for team-scoped keys
+ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS team_id uuid REFERENCES teams(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_api_keys_team_id ON api_keys(team_id);

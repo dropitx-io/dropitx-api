@@ -117,6 +117,58 @@ def _serialize_row(row) -> dict:
     return out
 
 
+def _parse_select_columns(columns: str):
+    """Parse PostgREST select syntax into main columns and JOIN specs.
+
+    Examples:
+        "team_id, role, joined_at, teams(*)"
+            → (["team_id", "role", "joined_at"], [("team_id", "teams", "*")])
+        "*, user_profiles!user_id(display_name, avatar_url)"
+            → (["*"], [("user_id", "user_profiles", "display_name, avatar_url")])
+        "*, teams(id, name, slug), user_profiles!invited_by(id, display_name)"
+            → (["*"], [("team_id", "teams", "id, name, slug"), ("invited_by", "user_profiles", "id, display_name")])
+
+    Returns:
+        (main_columns: list[str], joins: list[(fk_col, fk_table, fk_cols)])
+    """
+    import re
+
+    main_cols = []
+    joins = []
+
+    # Split on commas, but not inside parentheses
+    parts = re.split(r",\s*(?![^()]*\))", columns)
+
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+
+        # Check if this is a nested foreign table select: table(cols) or table!fk_col(cols)
+        match = re.match(r"^(\w+)(?:!(\w+))?\((.+)\)$", part)
+        if match:
+            fk_table = match.group(1)
+            explicit_fk = match.group(2)  # e.g. "user_id" from "user_profiles!user_id(...)"
+            nested_cols = match.group(3)
+
+            # Determine FK column: explicit or guess "{table_singular}_id"
+            if explicit_fk:
+                fk_col = explicit_fk
+            else:
+                # Guess: "teams" → "team_id", "user_profiles" → "user_id"
+                if fk_table.endswith("s"):
+                    fk_col = fk_table[:-1] + "_id"
+                else:
+                    fk_col = fk_table + "_id"
+
+            joins.append((fk_col, fk_table, nested_cols))
+        else:
+            # Regular column
+            main_cols.append(part)
+
+    return main_cols, joins
+
+
 # ---------------------------------------------------------------------------
 # Query builder
 # ---------------------------------------------------------------------------
@@ -185,8 +237,10 @@ class QueryBuilder:
         self._filters.append((col, "IN", val)); return self
 
     def is_(self, col: str, val: Any) -> "QueryBuilder":
-        if val is None:
+        if val is None or (isinstance(val, str) and val.lower() == "null"):
             self._filters.append((col, "IS NULL", None))
+        elif isinstance(val, str) and val.lower() == "not.null":
+            self._filters.append((col, "IS NOT NULL", None))
         else:
             self._filters.append((col, "IS", val))
         return self
@@ -225,6 +279,9 @@ class QueryBuilder:
             if op == "IS NULL":
                 parts.append(f"{col} IS NULL")
                 idx -= 1  # no param consumed
+            elif op == "IS NOT NULL":
+                parts.append(f"{col} IS NOT NULL")
+                idx -= 1  # no param consumed
             elif op == "IN":
                 ph = ", ".join(f"${idx + j}" for j in range(len(val)))
                 parts.append(f"{col} IN ({ph})")
@@ -258,9 +315,34 @@ class QueryBuilder:
 
     async def _do_select(self, conn) -> PostgRESTResponse:
         where, params = self._build_where()
-        sql = f"SELECT {self._columns} FROM {self._table}{where}"
+
+        # Parse columns: may include nested foreign table selects like:
+        #   "team_id, role, joined_at, teams(*)"
+        #   "*, user_profiles!user_id(display_name, avatar_url)"
+        #   "*, teams(id, name, slug), user_profiles!invited_by(id, display_name)"
+        select_parts, join_specs = _parse_select_columns(self._columns)
+
+        # Build base SELECT (only columns from the main table)
+        main_cols = ", ".join(select_parts) if select_parts else "*"
+        sql = f"SELECT {main_cols} FROM {self._table}"
+
+        # Add JOINs for nested foreign table selects
+        join_clauses = []
+        for i, (fk_col, fk_table, fk_cols) in enumerate(join_specs):
+            alias = f"_j{i}"
+            join_clauses.append(
+                f" LEFT JOIN {fk_table} AS {alias} ON {self._table}.{fk_col} = {alias}.id"
+            )
+
+        sql += "".join(join_clauses)
+        sql += where
+
         if self._order_by:
-            sql += f" ORDER BY {self._order_by[0]} {self._order_by[1]}"
+            # Qualify column with table name to avoid ambiguity in JOINs
+            order_col = self._order_by[0]
+            if "." not in order_col:
+                order_col = f"{self._table}.{order_col}"
+            sql += f" ORDER BY {order_col} {self._order_by[1]}"
         if self._limit_val is not None:
             sql += f" LIMIT {self._limit_val}"
         if self._offset_val is not None:
