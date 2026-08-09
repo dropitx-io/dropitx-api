@@ -1,0 +1,402 @@
+<!-- generated-by: gsd-doc-writer -->
+# DropItX API — API Reference
+
+This is the canonical HTTP contract for the DropItX FastAPI backend (`app/main.py`, app version `0.3.0`). It is consumed by the Next.js frontend (`dropitx/`), the Python CLI + MCP server (`dropitx-cli/`), and the bundled Node CLI. Every endpoint listed here is verified against the router source under `app/v1/`, `app/dashboard/`, `app/public/`, and `app/internal/`; nothing is inferred or invented.
+
+The live OpenAPI spec is also served by the app at `/docs` (Swagger UI) and `/redoc` (ReDoc).
+
+## How routers are mounted
+
+All routes are aggregated in `app/main.py:150-154`:
+
+| Mount prefix | Router | Source | Auth domain |
+|---|---|---|---|
+| `/api/v1` | `v1_router` | `app/v1/router.py` | API key + JWT (keys) |
+| `/api/dashboard` | `dashboard_router` | `app/dashboard/router.py` | JWT |
+| `/api` | `invite_actions` | `app/dashboard/invitations.py` (`invite_actions_router`) | JWT |
+| `/api` | `public_router` | `app/public/router.py` | Public / optional JWT |
+| `/api` | `internal_router` | `app/internal/router.py` | Mixed (JWT, optional, API-key) |
+| _(root)_ | inline `@app.get` | `app/main.py:171,177` | Public |
+
+The `/api` prefix is shared by `invite_actions`, `public_router`, and `internal_router`; paths are disambiguated by their route strings (e.g. `/invite/*`, `/shares/*`, `/publish`).
+
+## Authentication
+
+Two credential mechanisms are injected as FastAPI dependencies in `app/dependencies.py`. Both are transported via `Authorization: Bearer <token>` unless noted.
+
+- **JWT (Supabase Auth)** — `get_current_user` (`app/dependencies.py:41`) verifies the Supabase JWT against JWKS and returns a `User(id, email)`. `get_optional_user` (`app/dependencies.py:58`) returns `User | None` without raising, for endpoints that associate content with a user when logged in but remain usable anonymously. Missing/invalid token → `401`.
+- **API Key** — `get_api_key` (`app/dependencies.py:70`) accepts raw keys with the `shk_` (personal) or `sht_` (team) prefix, looks up the SHA-256 hash in the `api_keys` table, rejects revoked keys and team keys whose owner is no longer a member, and returns `ApiKeyAuth(user_id, key_id, team_id)`. The raw key is returned **once** at creation; only the hash is stored. A fire-and-forget task updates `last_used_at`.
+
+Per-endpoint auth is labelled in the tables below as:
+
+- **Public** — no credential required.
+- **JWT** — valid Supabase JWT required (`get_current_user`).
+- **JWT optional** — `get_optional_user`; works anonymously, enriches when authenticated.
+- **API key** — `get_api_key` (Bearer `shk_…` / `sht_…`).
+- **API key optional** — header-accepted key (e.g. `X-API-Key`) that links the upload to a user when present.
+- **Owner token** — owner JWT **or** a `delete_token` in the request body (share self-service delete/burn/set-password links).
+
+<!-- VERIFY: Production base URL is https://api.dropitx.com (referenced in cli_upload docstrings); confirm against the deployed Render service before relying on it. -->
+
+## Error responses
+
+All unhandled exceptions are normalized by the handlers in `app/main.py:92-139` into the `ErrorResponse` envelope (`core/exceptions.py:8`):
+
+```json
+{
+  "error": "not_found",
+  "detail": "Share not found",
+  "request_id": "req_abc123"
+}
+```
+
+| HTTP status | `error` code | Produced by |
+|---|---|---|
+| 401 | _(FastAPI default)_ | `get_current_user` / `get_api_key` on missing/invalid credentials |
+| 403 | `password_required` | `SharePasswordRequired` — password-protected share accessed without unlock |
+| 404 | `not_found` | `ShareNotFoundError` |
+| 429 | `rate_limit_exceeded` | `RateLimitError` — includes `Retry-After` header |
+| 500 | `internal_error` | Catch-all `Exception` handler |
+
+`request_id` is propagated by `RequestTrackingMiddleware` and the `request_id_var` context variable from `core/logging_config.py`.
+
+## Rate limits
+
+Rate limiting is delegated to the Postgres RPC `check_rate_limit` via the helpers in `core/rate_limit.py`. Buckets are per-IP (and per-slug for password unlock), resolved from `X-Forwarded-For` → `X-Real-IP` → `request.client.host` by `get_client_ip` (`app/dependencies.py:149`).
+
+| Scope | Limit | Window | Fail mode | Source |
+|---|---|---|---|---|
+| Upload / publish / multi-upload / batch / CLI upload / comments | 10 requests | 1 minute | fail-open | `check_upload_rate_limit` (`core/rate_limit.py:82`) |
+| Analytics tracking | 60 requests | 1 minute | fail-open | `check_analytics_rate_limit` (`core/rate_limit.py:97`) |
+| oEmbed | 60 requests | 1 minute | fail-open | `check_oembed_rate_limit` (`core/rate_limit.py:92`) |
+| Password unlock (`/shares/{slug}/unlock`) | 5 attempts | 10 minutes | fail-closed | `check_password_rate_limit` (`core/rate_limit.py:87`) |
+
+---
+
+## Health
+
+Defined inline on the app in `app/main.py`. No prefix.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/health` | Public | Liveness probe — `{"status":"ok","service":"dropitx-api"}` (`app/main.py:171`). |
+| GET | `/health/deep` | Public | Deep probe — verifies Supabase DB connectivity + latency. Returns `status:"ok"\|"degraded"` and a `checks.database` block (`app/main.py:177`). |
+
+---
+
+## v1 — Documents (API key)
+
+Source: `app/v1/documents.py` (router prefix `/documents`, mounted under `/api/v1`). All routes require an API key via `get_api_key`. Documents are stored in the `shares` Supabase Storage bucket. Models `DocumentCreate` / `DocumentUpdate` / `DocumentResponse` are defined inline at `app/v1/documents.py:32,49,59`.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/documents` | Create document owned by the API-key holder. Body `DocumentCreate`. Returns `DocumentResponse` (201). |
+| GET | `/api/v1/documents` | List documents — filtered to the user, or to the team when a `sht_` key is used. Query: `page`, `limit` (≤100). |
+| GET | `/api/v1/documents/{slug}` | Get a single document by slug. |
+| PATCH | `/api/v1/documents/{slug}` | Update document; saves a revision first. Body `DocumentUpdate`. |
+| DELETE | `/api/v1/documents/{slug}` | Delete document and its storage object (204). |
+
+`DocumentCreate` fields: `content` (1–5 MB), `filename?`, `title?`, `is_private`, `encrypted`, `encryption_iv?`, `encryption_salt?`, `burn_after_reading`, `one_time_download`, `expires_in?` (seconds).
+
+## v1 — API Keys (JWT)
+
+Source: `app/v1/keys.py` (router prefix `/keys`, mounted under `/api/v1`). All routes require a JWT. Models from `models/api_key.py`.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/v1/keys` | Create API key. Body `ApiKeyCreate(name, team_id?)`. Team keys (`sht_`) require editor+ membership. Returns `ApiKeyCreateResponse` including the **raw key once** (201). |
+| GET | `/api/v1/keys` | List the caller's non-revoked keys; optional `?team_id=` filter. Returns `ApiKeyResponse[]`. |
+| DELETE | `/api/v1/keys/{key_id}` | Soft-delete (revoke) a key owned by the caller (204). |
+
+## v1 — Revisions (API key)
+
+Source: `app/v1/revisions.py` (router prefix `/documents/{slug}/revisions`, mounted under `/api/v1`). All routes require an API key. Models from `models/share.py` (`ShareRevision`, `RevisionListResponse`) and inline `RestoreResponse`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/documents/{slug}/revisions` | List revisions newest-first. Query: `page`, `limit`. Returns `RevisionListResponse`. |
+| GET | `/api/v1/documents/{slug}/revisions/{revision}` | Get a specific revision. Returns `ShareRevision`. |
+| POST | `/api/v1/documents/{slug}/revisions/{revision}/restore` | Restore a revision; creates a new revision and overwrites storage. Returns `RestoreResponse`. |
+
+---
+
+## Dashboard — Teams (JWT)
+
+Source: `app/dashboard/teams.py` (no router-level prefix, mounted under `/api/dashboard`). All routes require a JWT. Role enforcement (`owner` / `editor` / `viewer`) is centralized in `app/dashboard/team_helpers.py`. `CreateTeamInput` from `models/team.py`.
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | `/api/dashboard/teams` | member | List teams the caller belongs to. |
+| POST | `/api/dashboard/teams` | any | Create team; caller becomes owner. Body `CreateTeamInput(name, slug?)` (201). |
+| GET | `/api/dashboard/teams/{slug}` | member | Get team details. |
+| PATCH | `/api/dashboard/teams/{slug}` | owner | Update name/slug. Body: `{name?, slug?}`. |
+| DELETE | `/api/dashboard/teams/{slug}` | owner | Delete team and associated data (204). |
+| GET | `/api/dashboard/teams/{slug}/members` | member | List members (with display name + avatar). |
+| PATCH | `/api/dashboard/teams/{slug}/members` | owner | Change member role via RPC `change_team_member_role`. Body: `{user_id, role}`. |
+| DELETE | `/api/dashboard/teams/{slug}/members` | owner\* | Remove member (members can remove themselves). Body: `{user_id}`. |
+
+## Dashboard — Team Invites (JWT)
+
+Source: `app/dashboard/team_invites.py`. Routes are registered onto the `teams_router` via import side-effect (see `app/dashboard/router.py:6`) and thus also live under `/api/dashboard`. All require a JWT; invite mutations require editor+. Backed by RPCs `create_team_invite`.
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| GET | `/api/dashboard/teams/{slug}/invites` | member | List pending invites. |
+| POST | `/api/dashboard/teams/{slug}/invites` | editor+ | Create invite. Body: `{email, role="viewer"}` (201). |
+| DELETE | `/api/dashboard/teams/{slug}/invites` | editor+ | Revoke invite. Body: `{invite_id}`. |
+| POST | `/api/dashboard/teams/{slug}/invites/bulk` | editor+ | Bulk invite up to 50 emails. Body: `{emails[], role}`. |
+| POST | `/api/dashboard/teams/{slug}/invites/{invite_id}/resend` | editor+ | Resend (rotates token if expired). |
+| GET | `/api/dashboard/teams/{slug}/events` | member | Team audit events. Query: `limit` (≤200), `offset`. |
+| GET | `/api/dashboard/teams/{slug}/shares` | member | Shares attached to the team. Query: `limit` (≤200), `offset`. |
+
+## Dashboard — Custom Domains (JWT)
+
+Source: `app/dashboard/domains.py` (mounted under `/api/dashboard`). All routes require a JWT; domain mutations require owner. Verification works via TXT record `_dropitx-verify.<domain> → <token>`. Models from `models/domain.py` (`AddDomainInput`, `UpdateDomainBrandInput`, `DomainVerificationStatus`).
+
+| Method | Path | Role | Description |
+|---|---|---|---|
+| POST | `/api/dashboard/teams/{slug}/domains` | owner | Add domain; returns record + verification token. Body `AddDomainInput(domain)` (201). |
+| GET | `/api/dashboard/teams/{slug}/domains` | member | List team domains. |
+| GET | `/api/dashboard/teams/{slug}/domains/{domain_id}` | member | Get one domain. |
+| DELETE | `/api/dashboard/teams/{slug}/domains/{domain_id}` | owner | Remove domain (204). |
+| POST | `/api/dashboard/teams/{slug}/domains/{domain_id}/verify` | owner | Trigger DNS verification; returns `DomainVerificationStatus`. |
+| PATCH | `/api/dashboard/teams/{slug}/domains/{domain_id}/brand` | owner | Update brand (logo/color/favicon). Body `UpdateDomainBrandInput`. |
+| GET | `/api/dashboard/domains/resolve/{domain}` | Public | Internal reverse-proxy lookup (`include_in_schema=False`); resolves a custom domain to its team config. |
+
+## Dashboard — Invitations (JWT)
+
+Source: `app/dashboard/invitations.py`. The `invitations_router` is mounted under `/api/dashboard`; the `invite_actions_router` is exported as `invite_actions` and mounted under `/api` (see `app/main.py:152`). Backed by RPCs `accept_team_invite` / `decline_team_invite`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/dashboard/invitations` | List pending invites matching the caller's email. |
+| POST | `/api/invite/accept` | Accept by token. Body: `{token}`. |
+| POST | `/api/invite/decline` | Decline by token. Body: `{token}`. |
+
+---
+
+## Public — Shares
+
+Source: `app/public/shares.py` (mounted under `/api`). Mixed auth.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/shares/{slug}/content` | Public | View content. Handles expiration (410), password protection (403 `password_protected`), burn-after-reading, E2E metadata passthrough, and download-limit enforcement. |
+| DELETE | `/api/shares/{slug}` | Owner token | Delete share. Body `DeleteShareRequest?` with `delete_token`. |
+| POST | `/api/shares/{slug}/set-password` | Owner token | Set or clear password. Body `SetPasswordRequest(password?, delete_token?)`. |
+| POST | `/api/shares/{slug}/unlock` | Public | Verify password (rate-limited 5/10min). Body `UnlockRequest`. |
+| POST | `/api/shares/{slug}/burn` | Owner token | Mark share consumed; 410 if already burned. Body `BurnShareRequest?`. |
+| GET | `/api/shares/{slug}/download` | Public | Download as file attachment. Supports `?password=` for protected shares. |
+| GET | `/api/shares/{slug}/download-status` | Public | Availability, `max_downloads`, `download_count`, `burn_after_reading`, `expired`, `consumed`. |
+
+## Public — Search / Analytics / oEmbed / QR / Languages
+
+Sources: `app/public/search.py`, `app/public/analytics.py`, `app/public/oembed.py`, `app/public/qrcode.py`, `app/public/languages.py` (all mounted under `/api`). All public.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/search` | Full-text search via RPC `search_shares`. Query: `q` (2–200 chars), `page`, `limit` (≤100). |
+| POST | `/api/analytics/track` | Track a view; rate-limited 60/min (fail-open), **always returns 200**. Body `AnalyticsTrack(tracking_token, share_id, referrer?, is_embed?)`. Returns `{tracked: bool}`. |
+| GET | `/api/oembed` | oEmbed discovery for a share URL. Query: `url`, `maxwidth?`, `maxheight?`. Rate-limited 60/min. |
+| GET | `/api/qr/{slug}` | QR code image for a share. |
+| GET | `/api/languages` | Supported languages for syntax highlighting. |
+
+## Public — Comments
+
+Source: `app/public/comments.py`, included with `prefix="/shares"` (`app/public/router.py:28`) so the effective prefix is `/api/shares`. Models `CommentCreate` / `CommentResponse` / `CommentListResponse` inline.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/shares/{slug}/comments` | Public | Paginated comments. Query: `page`, `per_page` (≤100). Returns `CommentListResponse`. |
+| POST | `/api/shares/{slug}/comments` | JWT optional | Add comment (rate-limited via upload bucket). Body `CommentCreate(author_name?, content, parent_id?)`. Returns `CommentResponse`. |
+
+## Public — Versions (JWT, owner only)
+
+Source: `app/public/versions.py` (mounted under `/api`). All routes verify share ownership via the JWT. Models inline (`VersionItem`, `VersionListResponse`, `RestoreResponse`).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/shares/{slug}/versions` | List versions. Returns `VersionListResponse`. |
+| GET | `/api/shares/{slug}/versions/{version_num}` | Get one version. Returns `VersionItem`. |
+| POST | `/api/shares/{slug}/versions/{version_num}/restore` | Restore a version (creates a new version). Returns `RestoreResponse`. |
+
+## Public — Encryption
+
+Source: `app/public/encryption.py` (mounted under `/api`). AES-256-GCM + PBKDF2, zero-knowledge (keys never leave the client/URL fragment). Models inline (`KeyBundleResponse`, `EncryptionInfoResponse`, `EncryptShareRequest`, `ReencryptShareRequest`, `EncryptResponse`).
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/encryption/generate-key` | Public | Generate `{key, iv, salt}` bundle for client-side encryption. |
+| GET | `/api/shares/{slug}/encryption-info` | Public | Encryption metadata (IV, salt, has_password) — never the key. Returns `EncryptionInfoResponse`. |
+| POST | `/api/shares/{slug}/encrypt` | Owner token | Encrypt an existing plaintext share with a password. Body `EncryptShareRequest(password, delete_token?)`. Returns `EncryptResponse`. |
+| POST | `/api/shares/{slug}/reencrypt` | Password holder | Re-encrypt with a new password. Body `ReencryptShareRequest(old_password, new_password, delete_token?)`. |
+
+## Public — Preview
+
+Source: `app/public/preview.py` (mounted under `/api`). Public. `PreviewType` is `image | pdf | code | markdown | video | audio | text | unsupported`.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/shares/{slug}/preview` | Structured preview without downloading. Query: `max_lines` (10–1000, default 100). Returns `PreviewResponse` (`preview_type`, `content_url`, optional `content`/`language`/`thumbnail_url`). |
+
+## Public — Explore / Stars / Profiles
+
+Sources: `app/public/explore.py`, `app/public/stars.py`, `app/public/profiles.py` (mounted under `/api`).
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/explore` | Public | Browse public shares. Query: `page`, `limit` (≤100), `tag?`, `sort` (`trending\|recent\|views\|stars`). |
+| GET | `/api/explore/tags` | Public | All tags with counts. Query: `limit` (≤200). |
+| GET | `/api/explore/trending` | Public | Top trending shares. Query: `limit` (≤50). |
+| GET | `/api/shares/{slug}/star` | JWT optional | Star count + whether the caller has starred. |
+| POST | `/api/shares/{slug}/star` | JWT | Star a share. |
+| DELETE | `/api/shares/{slug}/star` | JWT | Unstar a share. |
+| GET | `/api/u/{username}` | Public | Public profile. |
+| GET | `/api/u/{username}/shares` | Public | A user's public shares. Query: `page`, `limit` (≤100), `sort` (`recent\|views\|stars`). |
+
+## Public — File Requests (uploader-facing)
+
+Source: `app/public/file_requests.py` (mounted under `/api`). Public/anonymous — these are the endpoints uploaders hit via a request link.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| GET | `/api/requests/{slug}` | Public | Request info for uploaders (title, limits, expiry, `require_name/email`). |
+| POST | `/api/requests/{slug}/upload` | Public (anonymous) | Upload a file to a request (rate-limited via upload bucket). Multipart: `file`, optional `uploader_name`, `uploader_email`. |
+
+---
+
+## Internal — Publish (JWT)
+
+Source: `app/internal/publish.py` (mounted under `/api`). Both routes require a JWT and hit the upload rate-limit bucket. Models inline (`PublishRequest`, `UpdatePublishRequest`, `PublishResponse`).
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/publish` | Publish editor HTML. Body `PublishRequest(content, …)`. Returns `PublishResponse(slug, url, …)`. |
+| PUT | `/api/publish/{slug}` | Update an existing share; saves previous version to history. Body `UpdatePublishRequest`. Returns `PublishResponse`. |
+
+`PublishRequest` notable fields: `content` (1–10 MB), `filename?`, `title?`, `custom_slug?`, `max_downloads?`, `expires_in?` (`1h\|6h\|24h\|7d\|30d` or seconds), `encrypted`, `encryption_iv?`, `encryption_salt?`, `burn_after_reading`, `one_time_download`, `password?`, `language?`.
+
+## Internal — Upload (JWT optional)
+
+Source: `app/internal/upload.py` (mounted under `/api`). Optional JWT (associates file with the user when present). Both routes hit the upload rate-limit bucket.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/upload` | Upload a single file (multipart `file`). Query/form options include `encrypted`, `encryption_iv`, `encryption_salt`, `burn_after_reading`, `one_time_download`, `expires_in`, `max_downloads`, `password`, `language`. |
+| POST | `/api/upload/batch` | Upload up to 20 files as a group; returns a group slug + per-file URLs. Multipart `files[]`, `max_downloads?`, `expires_in?`, `password?`. |
+
+## Internal — Multi-file Upload (JWT optional)
+
+Source: `app/internal/multi_upload.py` (mounted under `/api`). Model `MultiFileResponse` inline.
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| POST | `/api/upload/multi` | JWT optional | Upload up to 20 files (`_MAX_FILES`) as a single share. Multipart: `files[]`, `title?`, `custom_slug?`, `is_private?`, `password?`. Returns `MultiFileResponse(slug, url, delete_token, files[], file_count)`. |
+| GET | `/api/shares/{slug}/files` | Public | List files attached to a multi-file share. |
+
+## Internal — Images (JWT)
+
+Source: `app/internal/images.py` (mounted under `/api`).
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/images/upload` | Upload an editor image. Max 5 MB; allowed types PNG/JPG/GIF/WebP. Requires JWT. |
+
+## Internal — Download (Public)
+
+Source: `app/internal/download.py` (mounted under `/api`).
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/download/group/{slug}` | Stream all files in a share group as a single ZIP. 404 if group has no files. |
+
+## Internal — File Requests (owner, JWT)
+
+Source: `app/internal/file_requests.py` (mounted under `/api`). Owner-side management of request links (the uploader-facing pair is under _Public — File Requests_ above). Note: although these are mounted via `internal_router` at `/api`, their paths carry the `/dashboard` segment, so the full paths are `/api/dashboard/requests…`. Models from `models/file_request.py`.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/requests` | Create a request link. Body `FileRequestCreate(title?, description?, max_files, max_file_size_mb, expires_in, require_name, require_email)`. |
+| GET | `/api/dashboard/requests` | List the caller's file requests. |
+| GET | `/api/dashboard/requests/{request_id}/uploads` | List uploads for one request (ownership-verified). |
+| PATCH | `/api/dashboard/requests/{request_id}` | Update a request (title/description/limits/active). Body: JSON patch. |
+| DELETE | `/api/dashboard/requests/{request_id}` | Delete a request and all its uploads. |
+
+## Internal — CLI Upload (API key optional)
+
+Source: `app/internal/cli_upload.py` (router prefix `/cli`, mounted under `/api`). Designed for `curl`-friendly CLI usage (multipart, raw body, or piped text). Optional `X-API-Key` header links the upload to a user. Both routes hit the upload rate-limit bucket and return the share URL in both the JSON body and `X-DropItX-URL` / `X-DropItX-Slug` headers.
+
+| Method | Path | Description |
+|---|---|---|
+| POST | `/api/cli/upload` | Upload a file or raw body. Form/query: `file?`, `password?`, `expires?`, `burn?`, `slug?`, `X-API-Key?`. |
+| POST | `/api/cli/upload/text` | Upload text directly (for pipes). Form: `content` (required), `filename?`, `password?`, `expires?`, `burn?`, `slug?`, `X-API-Key?`. |
+
+<!-- VERIFY: CLI upload docstrings reference https://api.dropitx.com as the example host — confirm against the production deployment before publishing client examples. -->
+
+---
+
+## Representative request/response shapes
+
+**Create a document (API key):**
+
+```bash
+curl -X POST https://api.dropitx.com/api/v1/documents \
+  -H "Authorization: Bearer shk_xxx" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "# hello", "filename": "readme.md"}'
+```
+
+```json
+{
+  "id": "uuid",
+  "slug": "abc123",
+  "filename": "readme.md",
+  "content": "# hello",
+  "is_private": false,
+  "view_count": 0,
+  "encrypted": false,
+  "burn_after_reading": false,
+  "one_time_download": false,
+  "created_at": "2026-08-09T12:00:00Z",
+  "updated_at": "2026-08-09T12:00:00Z"
+  }
+```
+
+**Create an API key (JWT) — raw key returned once:**
+
+```json
+{
+  "id": "uuid",
+  "name": "CI key",
+  "key_prefix": "shk_abc",
+  "key": "shk_abcdefghijklmnopqrstuvwxyz0123456789",
+  "team_id": null,
+  "created_at": "2026-08-09T12:00:00Z"
+}
+```
+
+**Publish from the editor (JWT)** returns `PublishResponse`:
+
+```json
+{
+  "slug": "abc123",
+  "url": "https://dropitx.com/s/abc123",
+  "filename": null,
+  "title": "My snippet",
+  "encrypted": false,
+  "burn_after_reading": false,
+  "one_time_download": false,
+  "expires_at": "2026-08-16T12:00:00Z",
+  "password_protected": false
+}
+```
+
+## OpenAPI / introspection
+
+The full machine-readable contract is generated by FastAPI from the same decorators documented here:
+
+- Swagger UI — `GET /docs`
+- ReDoc — `GET /redoc`
+- OpenAPI JSON — `GET /openapi.json`
+
+Tag groupings (set in `app/main.py:28-51`) match the section headings above.
