@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from fastapi import Request
 from fastapi.exceptions import HTTPException
 
-from core.security import verify_supabase_jwt, hash_api_key
+from core.security import verify_firebase_jwt, hash_api_key
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class ApiKeyAuth:
 # ---------------------------------------------------------------------------
 
 async def get_current_user(request: Request) -> User:
-    """Extract and validate Supabase JWT from Authorization header.
+    """Extract and validate a Firebase ID token from the Authorization header.
 
     Raises HTTPException(401) on missing/invalid token.
     """
@@ -48,7 +48,7 @@ async def get_current_user(request: Request) -> User:
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
     try:
-        payload = await asyncio.to_thread(verify_supabase_jwt, token)
+        payload = await asyncio.to_thread(verify_firebase_jwt, token)
         return User(id=payload["sub"], email=payload.get("email"))
     except (ValueError, KeyError) as exc:
         logger.debug("JWT validation failed: %s", exc)

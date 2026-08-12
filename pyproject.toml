@@ -1,12 +1,11 @@
 [project]
 name = "dropitx-api"
-version = "0.1.0"
-description = "DropItX FastAPI backend"
+version = "0.3.0"
+description = "DropItX FastAPI backend for file/text sharing with team collaboration"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.34.0",
-    "supabase>=2.0.0",
     "pydantic-settings>=2.7.0",
     "python-jose[cryptography]>=3.3.0",
     "bcrypt>=4.2.0",

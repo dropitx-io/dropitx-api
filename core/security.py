@@ -9,72 +9,86 @@ from datetime import datetime, timezone
 
 import bcrypt
 from jose import jwt, JWTError, JWSError
-from jose.utils import base64url_decode
 
 from core.config import settings
 
 # ---------------------------------------------------------------------------
-# JWKS cache for Supabase JWT verification
+# Firebase ID token verification (public x509 certs, cached)
 # ---------------------------------------------------------------------------
 
-_JWKS_CACHE: dict | None = None
-_JWKS_EXPIRES: float = 0.0
-_JWKS_TTL = 600  # 10 minutes
+_FIREBASE_CERTS_URL = (
+    "https://www.googleapis.com/robot/v1/metadata/x509/"
+    "securetoken@system.gserviceaccount.com"
+)
+_FIREBASE_ISSUER_PREFIX = "https://securetoken.google.com/"
+
+_CERTS_CACHE: dict[str, str] | None = None
+_CERTS_EXPIRES: float = 0.0
+_CERTS_TTL = 3600  # 1 hour; refetched on a kid miss to survive key rotation
 
 
-def _fetch_jwks() -> dict:
-    """Fetch and cache JWKS from Supabase Auth."""
-    global _JWKS_CACHE, _JWKS_EXPIRES
+def _fetch_firebase_certs(force: bool = False) -> dict[str, str]:
+    """Fetch and cache Firebase's public x509 signing certs, keyed by kid."""
+    global _CERTS_CACHE, _CERTS_EXPIRES
 
     now = time.time()
-    if _JWKS_CACHE is not None and now < _JWKS_EXPIRES:
-        return _JWKS_CACHE
+    if not force and _CERTS_CACHE is not None and now < _CERTS_EXPIRES:
+        return _CERTS_CACHE
 
     import httpx
 
-    jwks_url = f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
-    resp = httpx.get(jwks_url, timeout=10)
+    resp = httpx.get(_FIREBASE_CERTS_URL, timeout=10)
     resp.raise_for_status()
-    _JWKS_CACHE = resp.json()
-    _JWKS_EXPIRES = now + _JWKS_TTL
-    return _JWKS_CACHE
+    _CERTS_CACHE = resp.json()
+    _CERTS_EXPIRES = now + _CERTS_TTL
+    return _CERTS_CACHE
 
 
-def verify_supabase_jwt(token: str) -> dict:
-    """Verify a Supabase JWT and return the payload.
+def _cert_for_kid(kid: str) -> str:
+    """PEM cert for a kid, refetching once on a miss to handle key rotation."""
+    certs = _fetch_firebase_certs()
+    if kid not in certs:
+        certs = _fetch_firebase_certs(force=True)
+    cert = certs.get(kid)
+    if not cert:
+        raise ValueError(f"No matching Firebase signing cert for kid={kid}")
+    return cert
 
-    Returns dict with at least 'sub' (user_id).
-    Raises ValueError on invalid/expired token.
+
+def verify_firebase_jwt(token: str) -> dict:
+    """Verify a Firebase ID token and return its claims.
+
+    Validates the RS256 signature against Firebase's public certs plus the
+    audience/issuer for the configured project. Returns a dict with at least
+    'sub' (the Firebase uid). Raises ValueError on any invalid/expired token.
     """
+    project_id = settings.firebase_project_id
+    if not project_id:
+        raise ValueError("FIREBASE_PROJECT_ID is not configured")
+
     try:
-        jwks = _fetch_jwks()
-        # Extract kid from unverified header
-        unverified_header = jwt.get_unverified_header(token)
-        kid = unverified_header.get("kid")
+        header = jwt.get_unverified_header(token)
+        if header.get("alg") != "RS256":
+            raise ValueError(f"Unexpected alg {header.get('alg')!r}, expected RS256")
+        kid = header.get("kid")
+        if not kid:
+            raise ValueError("Token header missing 'kid'")
 
-        # Find matching key in JWKS
-        rsa_key = {}
-        for key in jwks.get("keys", []):
-            if key["kid"] == kid:
-                rsa_key = key
-                break
+        cert = _cert_for_kid(kid)
 
-        if not rsa_key:
-            raise ValueError(f"No matching JWKS key for kid={kid}")
-
-        # Decode and verify using the public key from JWKS
-        # Supports both RS256 (RSA) and ES256 (ECDSA) algorithms
-        alg = rsa_key.get("alg", "RS256")
         payload = jwt.decode(
             token,
-            rsa_key,
-            algorithms=[alg, "RS256", "ES256"],
-            options={"verify_aud": False, "verify_at_hash": False},
+            cert,
+            algorithms=["RS256"],
+            audience=project_id,
+            issuer=f"{_FIREBASE_ISSUER_PREFIX}{project_id}",
         )
-        return payload
+    except (JWTError, JWSError) as exc:
+        raise ValueError(f"Invalid Firebase ID token: {exc}") from exc
 
-    except JWTError as exc:
-        raise ValueError(f"Invalid JWT: {exc}") from exc
+    if not payload.get("sub"):
+        raise ValueError("Token missing 'sub' (uid) claim")
+    return payload
 
 
 # ---------------------------------------------------------------------------

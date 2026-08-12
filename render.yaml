@@ -8,11 +8,9 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12.0"
+      - key: FIREBASE_PROJECT_ID
+        sync: false
       - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: ALLOWED_ORIGINS
         sync: false

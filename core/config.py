@@ -2,10 +2,12 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    # --- Supabase (kept for Auth JWT verification only) ---
+    # --- Firebase Auth (ID token verification) ---
+    firebase_project_id: str = ""
+
+    # Legacy: still used only to build public storage object URLs
+    # (upload/publish/images/preview/thumbnail/oembed). Not used for auth.
     supabase_url: str = ""
-    supabase_anon_key: str = ""
-    supabase_service_role_key: str = ""
 
     # --- Local PostgreSQL ---
     database_url: str = "postgresql://dropitx:dropitx_local_dev@localhost:5432/dropitx"
@@ -19,7 +21,7 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:3000"
     frontend_url: str = "http://localhost:3000"
 
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    model_config = {"env_file": ".env", "env_file_encoding": "utf-8", "extra": "ignore"}
 
     @property
     def cors_origins(self) -> list[str]:
