@@ -19,7 +19,7 @@ RETURNS TABLE (
     view_count INTEGER,
     download_count INTEGER,
     created_at TIMESTAMPTZ,
-    user_id UUID
+    user_id TEXT
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -56,7 +56,7 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION change_team_member_role(
     p_team_id UUID,
-    p_user_id UUID,
+    p_user_id TEXT,
     p_new_role TEXT
 ) RETURNS void AS $$
 BEGIN
@@ -68,7 +68,7 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION remove_team_member(
     p_team_id UUID,
-    p_user_id UUID
+    p_user_id TEXT
 ) RETURNS void AS $$
 BEGIN
     DELETE FROM team_members WHERE team_id = p_team_id AND user_id = p_user_id;
@@ -77,7 +77,7 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION accept_team_invite(
     p_token TEXT,
-    p_user_id UUID
+    p_user_id TEXT
 ) RETURNS TABLE(team_id UUID, team_name TEXT) AS $$
 DECLARE
     v_invite RECORD;
@@ -112,7 +112,7 @@ CREATE OR REPLACE FUNCTION create_team_invite(
     p_team_id UUID,
     p_email TEXT,
     p_role TEXT,
-    p_invited_by UUID,
+    p_invited_by TEXT,
     p_token TEXT
 ) RETURNS TABLE(id UUID, team_id UUID, email TEXT, role TEXT, token TEXT) AS $$
 DECLARE

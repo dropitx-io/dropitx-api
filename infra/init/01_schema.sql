@@ -8,13 +8,13 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- =========================================================================
 -- auth.users stub — local replacement for Supabase auth.users
--- JWT 'sub' field is a UUID pointing here. We don't manage passwords
--- (Supabase Auth cloud does), this table just satisfies FK constraints.
+-- JWT 'sub' field is a Firebase uid pointing here. We don't manage passwords
+-- (Firebase Auth does), this table just satisfies FK constraints.
 -- =========================================================================
 CREATE SCHEMA IF NOT EXISTS auth;
 
 CREATE TABLE IF NOT EXISTS auth.users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    id TEXT PRIMARY KEY,
     email TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS shares (
     mime_type TEXT,
     is_private BOOLEAN DEFAULT false,
     password_hash TEXT,
-    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    user_id TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
     view_count INTEGER DEFAULT 0,
     max_views INTEGER,
     download_count INTEGER DEFAULT 0,
@@ -76,7 +76,7 @@ CREATE INDEX IF NOT EXISTS idx_shares_one_time_download
 -- =========================================================================
 CREATE TABLE IF NOT EXISTS api_keys (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id TEXT REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     key_hash TEXT NOT NULL UNIQUE,
     key_prefix TEXT NOT NULL,
@@ -98,7 +98,7 @@ CREATE TABLE IF NOT EXISTS teams (
     name TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
     description TEXT,
-    owner_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    owner_id TEXT REFERENCES auth.users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -109,7 +109,7 @@ CREATE INDEX IF NOT EXISTS idx_teams_owner_id ON teams(owner_id);
 CREATE TABLE IF NOT EXISTS team_members (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id TEXT REFERENCES auth.users(id) ON DELETE CASCADE,
     role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('owner', 'editor', 'viewer')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(team_id, user_id)
@@ -123,7 +123,7 @@ CREATE TABLE IF NOT EXISTS team_invitations (
     team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
     email TEXT NOT NULL,
     role TEXT NOT NULL DEFAULT 'viewer' CHECK (role IN ('editor', 'viewer')),
-    invited_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    invited_by TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
     token TEXT NOT NULL UNIQUE,
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'revoked')),
     expires_at TIMESTAMPTZ NOT NULL DEFAULT (now() + interval '7 days'),
@@ -140,7 +140,7 @@ CREATE OR REPLACE VIEW team_invites AS SELECT * FROM team_invitations;
 CREATE TABLE IF NOT EXISTS team_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
-    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    user_id TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
     event_type TEXT NOT NULL,
     payload JSONB DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -155,7 +155,7 @@ CREATE TABLE IF NOT EXISTS team_shares (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     team_id UUID REFERENCES teams(id) ON DELETE CASCADE,
     share_id UUID REFERENCES shares(id) ON DELETE CASCADE,
-    shared_by UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    shared_by TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -182,7 +182,7 @@ CREATE INDEX IF NOT EXISTS idx_share_files_share_id ON share_files(share_id);
 CREATE TABLE IF NOT EXISTS share_groups (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slug TEXT NOT NULL UNIQUE,
-    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    user_id TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -196,7 +196,7 @@ CREATE TABLE IF NOT EXISTS share_revisions (
     title TEXT,
     content TEXT,
     content_html TEXT,
-    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    user_id TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE(share_slug, version_num)
 );
@@ -217,7 +217,7 @@ CREATE INDEX IF NOT EXISTS idx_share_versions_slug ON share_versions(share_slug)
 CREATE TABLE IF NOT EXISTS share_comments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     share_slug TEXT NOT NULL REFERENCES shares(slug) ON DELETE CASCADE,
-    user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+    user_id TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
     author_name TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -245,7 +245,7 @@ CREATE INDEX IF NOT EXISTS idx_share_views_created_at ON share_views(created_at 
 CREATE TABLE IF NOT EXISTS share_stars (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     share_id UUID NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ DEFAULT now(),
     UNIQUE(share_id, user_id)
 );
@@ -255,7 +255,7 @@ CREATE INDEX IF NOT EXISTS idx_share_stars_user_id ON share_stars(user_id);
 
 CREATE TABLE IF NOT EXISTS tags (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id TEXT REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     color TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -276,7 +276,7 @@ CREATE INDEX IF NOT EXISTS idx_share_tags_tag_id ON share_tags(tag_id);
 
 CREATE TABLE IF NOT EXISTS folders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id TEXT REFERENCES auth.users(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     parent_id UUID REFERENCES folders(id) ON DELETE CASCADE,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -297,7 +297,7 @@ CREATE INDEX IF NOT EXISTS idx_share_folders_share_id ON share_folders(share_id)
 
 CREATE TABLE IF NOT EXISTS user_profiles (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL UNIQUE REFERENCES auth.users(id) ON DELETE CASCADE,
     username TEXT UNIQUE,
     display_name TEXT,
     bio TEXT,
@@ -341,7 +341,7 @@ CREATE INDEX IF NOT EXISTS idx_custom_domains_status ON custom_domains(status);
 CREATE TABLE IF NOT EXISTS file_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slug TEXT NOT NULL UNIQUE,
-    user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
     title TEXT,
     description TEXT,
     max_files INTEGER DEFAULT 10 CHECK (max_files >= 1 AND max_files <= 100),
@@ -464,7 +464,7 @@ RETURNS INTEGER AS $$
     SELECT COUNT(*)::INTEGER FROM share_stars WHERE share_id = p_share_id;
 $$ LANGUAGE sql;
 
-CREATE OR REPLACE FUNCTION has_user_starred(p_share_id UUID, p_user_id UUID)
+CREATE OR REPLACE FUNCTION has_user_starred(p_share_id UUID, p_user_id TEXT)
 RETURNS BOOLEAN AS $$
     SELECT EXISTS(SELECT 1 FROM share_stars WHERE share_id = p_share_id AND user_id = p_user_id);
 $$ LANGUAGE sql;
