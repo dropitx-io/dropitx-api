@@ -6,6 +6,7 @@ from app.v1.router import router as v1_router
 from app.dashboard.router import router as dashboard_router, invite_actions
 from app.public.router import router as public_router
 from app.internal.router import router as internal_router
+from app.auth.router import router as auth_router
 
 _tags_metadata = [
     {
@@ -79,7 +80,7 @@ app = FastAPI(
     description=(
         "Backend for DropItX — a file and text sharing platform with team collaboration.\n\n"
         "**Authentication methods:**\n"
-        "- **JWT (Supabase Auth):** `Authorization: Bearer <jwt>` — used for dashboard, upload, publish, and image endpoints\n"
+        "- **JWT (Firebase Auth):** `Authorization: Bearer <firebase_id_token>` — used for dashboard, upload, publish, image, and /api/auth/session endpoints\n"
         "- **API Key:** `Authorization: Bearer shk_...` or `sht_...` — used for v1 document endpoints\n\n"
         "**Rate limiting:**\n"
         "- Upload/publish: per-IP, configurable\n"
@@ -108,6 +109,7 @@ app.include_router(dashboard_router, prefix="/api/dashboard")
 app.include_router(invite_actions, prefix="/api")
 app.include_router(public_router, prefix="/api")
 app.include_router(internal_router, prefix="/api")
+app.include_router(auth_router, prefix="/api/auth")
 
 
 @app.get("/health", tags=["Health"])
