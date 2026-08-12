@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class User:
-    """Authenticated user extracted from a Supabase JWT."""
+    """Authenticated user extracted from a Firebase ID token."""
     id: str
     email: str | None = None
 
@@ -38,21 +38,47 @@ class ApiKeyAuth:
 # JWT-based user extraction
 # ---------------------------------------------------------------------------
 
-async def get_current_user(request: Request) -> User:
-    """Extract and validate a Firebase ID token from the Authorization header.
+async def get_firebase_claims(request: Request) -> dict:
+    """Verify the Firebase Bearer token and return its claims.
 
-    Raises HTTPException(401) on missing/invalid token.
+    Raises HTTPException(401) on a missing or invalid token.
     """
     token = _extract_bearer(request)
     if not token:
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
-
     try:
-        payload = await asyncio.to_thread(verify_firebase_jwt, token)
-        return User(id=payload["sub"], email=payload.get("email"))
+        return await asyncio.to_thread(verify_firebase_jwt, token)
     except (ValueError, KeyError) as exc:
         logger.debug("JWT validation failed: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
+
+
+async def get_current_user(request: Request) -> User:
+    """Verify the Firebase JWT and confirm the user is provisioned locally.
+
+    Raises HTTPException(401) on missing/invalid token or an un-provisioned user.
+    Does not write — provisioning is the FE's job via /api/auth/session.
+    """
+    claims = await get_firebase_claims(request)
+    uid = claims["sub"]
+
+    try:
+        client = get_admin_client()
+        resp = await asyncio.to_thread(
+            lambda: client.table("auth.users").select("id, email").eq("id", uid).execute()
+        )
+    except Exception as exc:
+        logger.error("User lookup failed for %s: %s", uid, exc)
+        raise HTTPException(status_code=500, detail="User lookup failed") from exc
+
+    if not resp.data:
+        raise HTTPException(
+            status_code=401,
+            detail={"code": "user_not_provisioned", "message": "User not provisioned"},
+        )
+
+    row = resp.data[0]
+    return User(id=row["id"], email=row.get("email"))
 
 
 async def get_optional_user(request: Request) -> User | None:
