@@ -140,3 +140,36 @@ ALTER TABLE team_members ADD CONSTRAINT team_members_role_check
 -- api_keys: add team_id for team-scoped keys
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS team_id uuid REFERENCES teams(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_api_keys_team_id ON api_keys(team_id);
+
+-- =========================================================================
+-- provision_firebase_user — idempotent upsert of auth.users + user_profiles
+-- Called by GET /api/auth/session on every FE load. ON CONFLICT keeps it
+-- race-free for concurrent first calls; profile fields are never clobbered.
+-- =========================================================================
+CREATE OR REPLACE FUNCTION provision_firebase_user(p_uid TEXT, p_email TEXT)
+RETURNS TABLE (
+    user_id TEXT,
+    username TEXT,
+    display_name TEXT,
+    bio TEXT,
+    avatar_url TEXT,
+    is_public BOOLEAN,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+) AS $$
+BEGIN
+    INSERT INTO auth.users (id, email)
+    VALUES (p_uid, p_email)
+    ON CONFLICT (id) DO UPDATE
+      SET email = COALESCE(EXCLUDED.email, auth.users.email);
+
+    INSERT INTO user_profiles (user_id)
+    VALUES (p_uid)
+    ON CONFLICT (user_id) DO NOTHING;
+
+    RETURN QUERY
+    SELECT user_id, username, display_name, bio, avatar_url, is_public, created_at, updated_at
+    FROM user_profiles
+    WHERE user_id = p_uid;
+END;
+$$ LANGUAGE plpgsql;
