@@ -22,12 +22,13 @@ Let anyone go from "I have HTML/Markdown/text" to "here's a shareable, optionall
 - ✓ Programmatic API (personal/team API keys, full document CRUD, version/revision endpoints, rate-limited stateless access, OpenAPI docs) — shipped v0.1.0–v0.3.0
 - ✓ Data + storage migrated off Supabase cloud to local PostgreSQL + MinIO via a hand-rolled PostgREST-compatible shim (`core/db.py`) — shipped, commit `7b7b8c3`
 - ✓ Firebase ID-token verification wired into `core/security.py`, replacing Supabase JWKS verification for JWT auth — shipped, commit `da48448`
+- ✓ Public-endpoint security hardening (SEC-01..06): owner/delete_token authorization on `encrypt_share`, rate limits on `reencrypt_share`/bulk-download/public-reads/domain-resolve, `profiles.py` NameError fix, plus a code-review-driven fix for a client-IP-spoofing gap (`CF-Connecting-IP`-only trust) — Validated in Phase 1: Security Hardening (2026-08-15). One residual item (DEPLOY-06 — enforcing tunnel-only reachability at the deployment layer) carried to Phase 3.
 
 ### Active
 
 <!-- Current roadmap scope — the stabilization work needed after core features shipped. Full detail in REQUIREMENTS.md. -->
+<!-- Phase 1 complete 2026-08-15 — see Validated section above. -->
 
-- [ ] Close the CRITICAL and HIGH findings from the 2026-08-12 security audit on public endpoints (unauthenticated share takeover, unrated bulk-download DoS, unrated public reads)
 - [ ] Finish and verify the Firebase Auth backend migration end-to-end (provisioning, identity model, error handling) and reconcile docs that still describe Supabase JWT as the live auth mechanism
 - [ ] Finalize one deployment path (k8s or Dokploy) with a working from-empty DB migration step and a verified auth+storage round-trip before any traffic cutover
 - [ ] Reach the PRD's own stated >80% test coverage target with coverage tooling and CI enforcement, and reconcile the two conflicting testing-strategy docs
@@ -71,4 +72,4 @@ Let anyone go from "I have HTML/Markdown/text" to "here's a shareable, optionall
 | Local Postgres + MinIO for data/storage; Supabase retained only for Auth, later superseded by Firebase for Auth too | Incremental migration off Supabase cloud without a big-bang cutover | ✓ Good (data/storage migration shipped `7b7b8c3`; Auth migration followed via `da48448`) |
 
 ---
-*Last updated: 2026-08-15 after initial roadmap creation (ingest-based)*
+*Last updated: 2026-08-15 after Phase 1 (Security Hardening) completion*
