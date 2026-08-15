@@ -173,14 +173,12 @@ async def _update_last_used(key_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 def get_client_ip(request: Request) -> str:
-    """Extract client IP from X-Forwarded-For, X-Real-IP, or request.client."""
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
+    """Extract client IP, trusting only CF-Connecting-IP (set by Cloudflare's edge)."""
+    # X-Forwarded-For/X-Real-IP are client-controlled and unverifiable here, so a
+    # spoofed value would let an attacker rotate rate-limit buckets per request.
+    cf_ip = request.headers.get("cf-connecting-ip")
+    if cf_ip:
+        return cf_ip.strip()
 
     if request.client:
         return request.client.host
