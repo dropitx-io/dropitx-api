@@ -68,7 +68,7 @@ Plans:
 
 **Goal**: One deployment path is fully specified, bootstraps a working database from empty, and is verified end-to-end before any traffic cutover
 **Depends on**: Phase 2 (deployment verification needs the finalized auth/identity model)
-**Requirements**: DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04, DEPLOY-05
+**Requirements**: DEPLOY-01, DEPLOY-02, DEPLOY-03, DEPLOY-04, DEPLOY-05, DEPLOY-06
 **Success Criteria** (what must be TRUE):
 
   1. The chosen target's migration plan correctly reflects the current Firebase-based auth requirements, not the pre-migration Supabase-JWT assumption

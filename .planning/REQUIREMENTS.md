@@ -33,6 +33,7 @@ Requirements for this roadmap. Each maps to exactly one phase.
 - [ ] **DEPLOY-03**: A fresh, empty database on the chosen deployment target is bootstrapped with schema, RPCs, and the Firebase-uid migration before the app receives traffic
 - [ ] **DEPLOY-04**: Deployment verification exercises a real authenticated request, a storage round-trip, and a rate-limited path — not just `GET /docs` and a bare 401 — before any rollback path is torn down
 - [ ] **DEPLOY-05**: Deployment-facing docs (`DEPLOYMENT.md`, `CONFIGURATION.md`, `deployment-guide.md`, `system-architecture.md`, `codebase-summary.md`) consistently describe the same two-bucket storage layout (`html-files`, `shares`; thumbnails nested inside `html-files`)
+- [ ] **DEPLOY-06**: The chosen deployment target enforces that the API is reachable only through Cloudflare Tunnel (e.g. `ClusterIP` service + in-cluster `cloudflared`, or a firewalled `NodePort`, or a shared-secret header check) — `core/rate_limit.py`'s IP-based limiters trust `CF-Connecting-IP` (per Phase 1's CR-01 fix), which is only trustworthy when direct access is actually blocked; `k8s/api.yaml`'s current `NodePort` on port 30080 does not enforce this
 
 ### Test Coverage & Reliability (TEST)
 
@@ -97,14 +98,15 @@ Explicitly excluded. Documented to prevent scope creep.
 | DEPLOY-03 | Phase 3 | Pending |
 | DEPLOY-04 | Phase 3 | Pending |
 | DEPLOY-05 | Phase 3 | Pending |
+| DEPLOY-06 | Phase 3 | Pending |
 | TEST-01 | Phase 4 | Pending |
 | TEST-02 | Phase 4 | Pending |
 | TEST-03 | Phase 4 | Pending |
 
 **Coverage:**
 
-- v1 requirements: 19 total
-- Mapped to phases: 19
+- v1 requirements: 20 total
+- Mapped to phases: 20
 - Unmapped: 0 ✓
 
 ---

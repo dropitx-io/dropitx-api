@@ -82,8 +82,9 @@ None yet.
 
 ### Blockers/Concerns
 
-- **Live security vulnerabilities open** (Phase 1 target): `POST /shares/{slug}/encrypt` has no auth check (anonymous share takeover); `GET /api/download/group/{slug}` has no auth/rate limit (unbounded in-memory ZIP DoS). Verified still present in code as of 2026-08-15.
-- **Firebase Auth work exists only on branch `firebase-auth-backend-api`**, not merged to `main` — Phase 2 should verify/merge, not re-implement.
+- **Phase 1 (Security Hardening) complete**: SEC-01..06 fixed and code-reviewed (`01-REVIEW.md`: 1 critical + 3 warning found; `01-REVIEW-FIX.md`: all 4 fixed; `01-REVIEW-VERIFY.md`: independently re-confirmed 2026-08-15).
+- **WR-04 (new, targets Phase 3)**: CR-01's fix (`get_client_ip()` now trusts only `CF-Connecting-IP`) only has real security value if the API is reachable **exclusively** through Cloudflare Tunnel. Not enforced in-app (no `TrustedHostMiddleware`/allowlist), and contradicted by `k8s/api.yaml` provisioning the service as `NodePort` on port 30080 — if that port is reachable outside the cluster firewall, `CF-Connecting-IP` becomes as forgeable as the header it replaced. Phase 3 (Deployment Path Finalization) must verify/enforce this before any traffic cutover.
+- **Firebase Auth work exists only on branch `firebase-auth-backend-api`** (now `gsd/v0.1.0-milestone`, fast-forwarded to include it), not merged to `main` — Phase 2 should verify/merge, not re-implement.
 - **Dokploy migration review (2026-08-12, 16:14) predates the Firebase Auth migration commit (`da48448`, same day 21:34)** — its SUPABASE_URL blocker needs re-verification against current code before Phase 3 treats it as ground truth.
 - Two doc discrepancies flagged in INGEST-CONFLICTS.md: storage bucket count (resolved — 2 buckets confirmed via `core/thumbnail.py`, stale docs need fixing in Phase 3) and testing-strategy description (unresolved, targeted in Phase 4).
 - 5 pre-existing, out-of-scope test failures unrelated to this plan (test_health_deep + 4 in test_public_api_validation.py touching shares.py) — logged in .planning/phases/01-security-hardening/deferred-items.md, not fixed
