@@ -68,7 +68,7 @@ async def get_public_profile(username: str):
             lambda: client.table("user_profiles")
             .select("id, username, display_name, avatar_url, bio, is_public")
             .eq("username", username)
-            .eq("is_public", true)
+            .eq("is_public", True)
             .execute()
         )
     except Exception as exc:

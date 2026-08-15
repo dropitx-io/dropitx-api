@@ -209,6 +209,11 @@ class TestPublicEndpoints:
         resp = await client.get(f"/api/shares/{FAKE_SLUG}/files")
         assert resp.status_code in (404, 500)
 
+    @pytest.mark.asyncio
+    async def test_public_profile_not_found(self, client):
+        resp = await client.get(f"/api/u/{FAKE_SLUG}")
+        assert resp.status_code in (404, 500)
+
 
 # ---------------------------------------------------------------------------
 # 3. Optional auth endpoints
