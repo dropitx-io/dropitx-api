@@ -11,12 +11,12 @@ Requirements for this roadmap. Each maps to exactly one phase.
 
 ### Security Hardening (SEC)
 
-- [ ] **SEC-01**: Anonymous callers cannot encrypt or overwrite an existing share — `POST /shares/{slug}/encrypt` requires the owner's JWT or a valid `delete_token`, mirroring the `_authorize_owner` check already used by `set-password`/`burn`/`delete`
-- [ ] **SEC-02**: Repeated password guesses against `POST /shares/{slug}/reencrypt` are rate-limited (fail-closed), consistent with `/unlock`
+- [x] **SEC-01**: Anonymous callers cannot encrypt or overwrite an existing share — `POST /shares/{slug}/encrypt` requires the owner's JWT or a valid `delete_token`, mirroring the `_authorize_owner` check already used by `set-password`/`burn`/`delete`
+- [x] **SEC-02**: Repeated password guesses against `POST /shares/{slug}/reencrypt` are rate-limited (fail-closed), consistent with `/unlock`
 - [ ] **SEC-03**: `GET /api/download/group/{slug}` enforces a per-IP rate limit before downloading files and building a ZIP in memory
 - [ ] **SEC-04**: Public read paths (`GET /shares/{slug}/content`, `/download`, `/preview`) enforce a lightweight per-IP rate limit distinct from the password-only throttle
 - [ ] **SEC-05**: `GET /api/dashboard/domains/resolve/{domain}` is protected by an internal-only guard (shared secret header) or a rate limit, since it is reachable from the public internet via Cloudflare Tunnel
-- [ ] **SEC-06**: `GET /api/u/{username}` returns a normal profile response (200) instead of erroring on every call (`true` → `True` bug fix)
+- [x] **SEC-06**: `GET /api/u/{username}` returns a normal profile response (200) instead of erroring on every call (`true` → `True` bug fix)
 
 ### Firebase Auth Migration Completion (AUTH)
 
@@ -81,12 +81,12 @@ Explicitly excluded. Documented to prevent scope creep.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SEC-01 | Phase 1 | Pending |
-| SEC-02 | Phase 1 | Pending |
+| SEC-01 | Phase 1 | Complete |
+| SEC-02 | Phase 1 | Complete |
 | SEC-03 | Phase 1 | Pending |
 | SEC-04 | Phase 1 | Pending |
 | SEC-05 | Phase 1 | Pending |
-| SEC-06 | Phase 1 | Pending |
+| SEC-06 | Phase 1 | Complete |
 | AUTH-01 | Phase 2 | Pending |
 | AUTH-02 | Phase 2 | Pending |
 | AUTH-03 | Phase 2 | Pending |
@@ -102,6 +102,7 @@ Explicitly excluded. Documented to prevent scope creep.
 | TEST-03 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 19 total
 - Mapped to phases: 19
 - Unmapped: 0 ✓

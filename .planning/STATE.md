@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 1
 current_phase_name: Security Hardening
 status: executing
-stopped_at: Phase 1 UI-SPEC approved
-last_updated: "2026-08-15T15:08:31.094Z"
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-08-15T15:25:21.861Z"
 last_activity: 2026-08-15
 last_activity_desc: Initial roadmap created from ingested docs (PRD + 2 SPECs + 14 DOC references + security audit + Dokploy spec review)
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 2
-  completed_plans: 0
+  completed_plans: 1
 ---
 
 # Project State
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 ## Current Position
 
-Phase: 1 of 4 (Security Hardening)
-Plan: 0 of TBD in current phase
+Phase: 1 (Security Hardening) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-08-15 — Initial roadmap created from ingested docs (PRD + 2 SPECs + 14 DOC references + security audit + Dokploy spec review)
+Last activity: 2026-08-15 — Phase 1 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -54,6 +54,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 20min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -64,6 +69,8 @@ Recent decisions affecting current work:
 
 - Firebase Auth: uid stored as `TEXT` everywhere, no mapping table, no derived UUID (already implemented, `migrations/007_firebase_uid_text.sql`)
 - Firebase Auth: `GET /api/auth/session` provisions on read (idempotent upsert); `get_current_user` verifies + looks up but never writes (already implemented)
+- [Phase ?]: Reused existing _authorize_owner/check_password_rate_limit helpers verbatim rather than introducing new abstractions
+- [Phase ?]: Started local Postgres/MinIO via docker compose up -d to run live-DB boundary tests and confirm true GREEN state
 
 ### Pending Todos
 
@@ -75,6 +82,7 @@ None yet.
 - **Firebase Auth work exists only on branch `firebase-auth-backend-api`**, not merged to `main` — Phase 2 should verify/merge, not re-implement.
 - **Dokploy migration review (2026-08-12, 16:14) predates the Firebase Auth migration commit (`da48448`, same day 21:34)** — its SUPABASE_URL blocker needs re-verification against current code before Phase 3 treats it as ground truth.
 - Two doc discrepancies flagged in INGEST-CONFLICTS.md: storage bucket count (resolved — 2 buckets confirmed via `core/thumbnail.py`, stale docs need fixing in Phase 3) and testing-strategy description (unresolved, targeted in Phase 4).
+- 5 pre-existing, out-of-scope test failures unrelated to this plan (test_health_deep + 4 in test_public_api_validation.py touching shares.py) — logged in .planning/phases/01-security-hardening/deferred-items.md, not fixed
 
 ## Deferred Items
 
@@ -89,6 +97,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T14:43:21.780Z
-Stopped at: Phase 1 UI-SPEC approved
-Resume file: .planning/phases/01-security-hardening/01-UI-SPEC.md
+Last session: 2026-08-15T15:25:21.848Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None
