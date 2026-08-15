@@ -567,7 +567,7 @@ async def download_share(
 # ---------------------------------------------------------------------------
 
 @router.get("/shares/{slug}/download-status", tags=["Shares"], summary="Check download status")
-async def get_download_status(slug: str):
+async def get_download_status(slug: str, request: Request):
     """Check if a share is available for download.
 
     Returns status info including:
@@ -579,6 +579,15 @@ async def get_download_status(slug: str):
     - burn_after_reading: whether the file burns after reading
     - expired: whether the file has expired
     """
+    ip = get_client_ip(request)
+    rate = check_public_read_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     client = get_admin_client()
     try:
         resp = await asyncio.to_thread(

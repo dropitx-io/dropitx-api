@@ -28,7 +28,7 @@ from core.encryption import (
     generate_iv,
     generate_salt,
 )
-from core.rate_limit import check_password_rate_limit
+from core.rate_limit import check_password_rate_limit, check_public_read_rate_limit
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -134,11 +134,20 @@ async def generate_key_endpoint():
     tags=["Encryption"],
     summary="Get share encryption info",
 )
-async def get_encryption_info(slug: str):
+async def get_encryption_info(slug: str, request: Request):
     """Return encryption metadata for a share (IV, salt, password status).
 
     Does NOT return any keys — zero-knowledge model.
     """
+    ip = get_client_ip(request)
+    rate = check_public_read_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     row = await _fetch_share_for_encrypt(slug)
     return EncryptionInfoResponse(
         encrypted=row.get("encrypted", False),
