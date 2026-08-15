@@ -94,6 +94,11 @@ def check_oembed_rate_limit(ip: str) -> RateLimitResult:
     return _check_rpc(f"oembed:{ip}", max_attempts=60, window_secs=60, fail_open=True)
 
 
+def check_bulk_download_rate_limit(ip: str) -> RateLimitResult:
+    """10 bulk-download requests per minute per IP. Fail-open."""
+    return _check_rpc(f"bulkdl:{ip}", max_attempts=10, window_secs=60, fail_open=True)
+
+
 def check_analytics_rate_limit(ip: str) -> bool:
     """60 analytics requests per minute per IP. Fail-open. Returns bool."""
     result = _check_rpc(f"analytics:{ip}", max_attempts=60, window_secs=60, fail_open=True)
