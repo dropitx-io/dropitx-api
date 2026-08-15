@@ -30,10 +30,11 @@ Decimal phases appear between their surrounding integers in numeric order.
   4. Public read paths (share content, download, preview) reject request bursts per IP instead of serving unlimited traffic
   5. `GET /api/dashboard/domains/resolve/{domain}` is no longer freely callable from the public internet without an internal credential or a rate limit
   6. `GET /api/u/{username}` returns a normal 200 profile response instead of a 500 on every call
-**Plans**: TBD
+**Plans**: 2 plans
 
 Plans:
-- [ ] 01-01: TBD (populated by /gsd-plan-phase)
+- [ ] 01-01-PLAN.md — SEC-01/02/06: encrypt_share owner auth, reencrypt_share rate limit, profiles.py NameError fix
+- [ ] 01-02-PLAN.md — SEC-03/04/05: new rate-limit buckets for bulk-download, public reads, domain-resolve
 
 ### Phase 2: Firebase Auth Migration Completion
 **Goal**: DropItX's identity model is fully and verifiably Firebase-based end-to-end, with documentation matching reality
@@ -86,7 +87,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Security Hardening | 0/TBD | Not started | - |
+| 1. Security Hardening | 0/2 | Not started | - |
 | 2. Firebase Auth Migration Completion | 0/TBD | Not started | - |
 | 3. Deployment Path Finalization | 0/TBD | Not started | - |
 | 4. Test Coverage & Reliability | 0/TBD | Not started | - |
