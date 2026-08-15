@@ -15,7 +15,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from app.dependencies import User, get_current_user
+from app.dependencies import User, get_current_user, get_optional_user
 from core.encryption import (
     _b64decode,
     _b64encode,
@@ -157,7 +157,11 @@ async def get_encryption_info(slug: str):
     summary="Encrypt share with password",
     response_model=EncryptResponse,
 )
-async def encrypt_share(slug: str, body: EncryptShareRequest):
+async def encrypt_share(
+    slug: str,
+    body: EncryptShareRequest,
+    user: User | None = Depends(get_optional_user),
+):
     """Encrypt an existing unencrypted share with a password.
 
     Flow:
@@ -171,6 +175,11 @@ async def encrypt_share(slug: str, body: EncryptShareRequest):
     Returns the share URL — caller should append the encryption key fragment.
     """
     row = await _fetch_share_for_encrypt(slug)
+
+    if user is None and not body.delete_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    _authorize_owner(row, user, body.delete_token)
 
     if row.get("encrypted"):
         raise HTTPException(

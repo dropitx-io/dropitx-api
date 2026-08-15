@@ -252,6 +252,21 @@ class TestOptionalAuthEndpoints:
         resp = await client.post(f"/api/shares/{FAKE_SLUG}/burn")
         assert resp.status_code in (401, 404, 500)
 
+    @pytest.mark.asyncio
+    async def test_encrypt_share_no_auth(self, client):
+        resp = await client.post(f"/api/shares/{FAKE_SLUG}/encrypt", json={
+            "password": "test123",
+        })
+        assert resp.status_code in (401, 404, 500)
+
+    @pytest.mark.asyncio
+    async def test_encrypt_share_empty_delete_token(self, client):
+        resp = await client.post(f"/api/shares/{FAKE_SLUG}/encrypt", json={
+            "password": "test123",
+            "delete_token": "",
+        })
+        assert resp.status_code in (401, 404, 500)
+
 
 # ---------------------------------------------------------------------------
 # 4. JWT-required endpoints (should return 401 without valid JWT)
