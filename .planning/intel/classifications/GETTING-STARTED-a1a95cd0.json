@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/GETTING-STARTED.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Getting Started",
+  "summary": "Setup guide covering prerequisites, installation, and environment configuration for running the DropItX API locally.",
+  "scope": ["local development setup", "Python environment", "Supabase configuration", "environment variables"],
+  "cross_refs": ["../pyproject.toml", "../render.yaml", "../requirements.txt", "../README.md", "../uv.lock", "core/config.py", "../.env.example"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

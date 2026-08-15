@@ -1,0 +1,27 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/DEPLOYMENT.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Deployment",
+  "summary": "Canonical Render blueprint deployment reference for DropItX API, covering Supabase prerequisites, env vars, health checks, and rollback.",
+  "scope": ["Render deployment", "render.yaml blueprint", "Supabase Postgres/Storage/Auth", "environment variables", "health checks", "rollback", "monitoring"],
+  "cross_refs": [
+    "../render.yaml",
+    "deployment-guide.md",
+    "CONFIGURATION.md",
+    "../supabase/migrations/",
+    "../migrations/",
+    "../core/security.py",
+    "../core/supabase.py",
+    "../core/config.py",
+    "../app/main.py",
+    "../core/logging_config.py",
+    "../core/middleware.py",
+    "../core/rate_limit.py",
+    "../requirements.txt"
+  ],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

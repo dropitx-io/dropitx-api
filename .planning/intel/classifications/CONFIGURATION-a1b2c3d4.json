@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/CONFIGURATION.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Configuration",
+  "summary": "Reference for DropItX API runtime configuration: env vars, Pydantic Settings, CORS, logging, rate limiting, Supabase resources.",
+  "scope": ["environment variables", "Pydantic BaseSettings", "CORS", "logging", "rate limiting", "Supabase clients", "Render deployment", "JWT/JWKS"],
+  "cross_refs": ["../core/config.py", "../app/main.py", "../render.yaml", "../core/supabase.py", "../core/security.py", "../core/rate_limit.py", "../core/logging_config.py", "../core/middleware.py", "../README.md", "../pyproject.toml", "../requirements.txt", "../.env.example"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

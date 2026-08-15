@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/2026-08-12-firebase-google-login-implementation.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Firebase Google Sign-In — Implementation Plan for dropitx frontend",
+  "summary": "Step-by-step implementation guide for adding Firebase Google Sign-In to the dropitx frontend and verifying tokens on the FastAPI backend.",
+  "scope": ["Firebase Authentication", "Google Sign-In", "frontend", "FastAPI backend", "JWT verification", "verify_firebase_jwt"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": "Prose+code implementation walkthrough organized in phases (Console Setup, Frontend Code, ...); no ADR status field, no user-story/acceptance-criteria structure, no formal API/schema contract tables → classified as DOC (implementation guide/runbook) rather than ADR/PRD/SPEC."
+}

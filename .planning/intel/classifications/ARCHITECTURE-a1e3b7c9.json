@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/ARCHITECTURE.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "DropItX API — Architecture",
+  "summary": "Describes the FastAPI backend's layered architecture, component diagram, and data flow over Supabase.",
+  "scope": ["FastAPI", "Supabase", "routers", "core infrastructure", "component diagram", "data flow"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

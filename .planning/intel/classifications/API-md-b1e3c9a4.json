@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/API.md",
+  "type": "SPEC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "DropItX API — API Reference",
+  "summary": "Canonical HTTP contract for the DropItX FastAPI backend covering router mounts, auth mechanisms, and error response formats.",
+  "scope": ["FastAPI backend", "API routing", "authentication (JWT, API keys)", "error responses", "OpenAPI spec"],
+  "cross_refs": ["app/main.py", "app/dependencies.py", "core/exceptions.py", "app/v1/router.py", "app/dashboard/router.py", "app/dashboard/invitations.py", "app/public/router.py", "app/internal/router.py"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

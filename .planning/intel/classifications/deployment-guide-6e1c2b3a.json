@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/deployment-guide.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Deployment Guide",
+  "summary": "Step-by-step guide for provisioning Supabase, migrations, storage buckets, and environment variables to deploy DropItX API.",
+  "scope": ["Supabase", "Storage buckets", "database migrations", "environment variables", "deployment"],
+  "cross_refs": ["supabase/migrations"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

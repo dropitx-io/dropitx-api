@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/project-overview-pdr.md",
+  "type": "PRD",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "DropItX API — Product Design Record",
+  "summary": "Product overview describing target users and shipped features for HTML/Markdown sharing, security, team collaboration, discovery, and file management.",
+  "scope": ["content sharing", "e2e encryption", "team collaboration", "discovery and analytics", "file management", "API keys"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": "Titled 'Product Design Record' but structured as feature/scope inventory with target users rather than a single architectural decision or a Decision/Consequences ADR format; closest fit is PRD (requirements/feature scope, all marked shipped)."
+}
