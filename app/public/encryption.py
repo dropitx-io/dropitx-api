@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
+from app.public._share_auth import authorize_owner
 from core.encryption import (
     _b64decode,
     _b64encode,
@@ -95,15 +96,6 @@ async def _fetch_share_for_encrypt(slug: str) -> dict:
     if not rows:
         raise HTTPException(status_code=404, detail="Share not found")
     return rows[0]
-
-
-def _authorize_owner(row: dict, user: User | None, delete_token: str | None) -> None:
-    """Verify the caller is the share owner or has the delete token."""
-    if delete_token and row.get("delete_token") == delete_token:
-        return
-    if user and user.id == row.get("user_id"):
-        return
-    raise HTTPException(status_code=403, detail="Not authorized to modify this share")
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +181,7 @@ async def encrypt_share(
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    _authorize_owner(row, user, body.delete_token)
+    authorize_owner(row, user, body.delete_token)
 
     if row.get("encrypted"):
         raise HTTPException(
