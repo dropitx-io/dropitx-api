@@ -12,10 +12,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.dependencies import User, get_current_user, get_optional_user
+from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
 from core.encryption import (
     _b64decode,
     _b64encode,
@@ -28,6 +28,7 @@ from core.encryption import (
     generate_iv,
     generate_salt,
 )
+from core.rate_limit import check_password_rate_limit
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -259,12 +260,21 @@ async def encrypt_share(
     summary="Re-encrypt share with new password",
     response_model=EncryptResponse,
 )
-async def reencrypt_share(slug: str, body: ReencryptShareRequest):
+async def reencrypt_share(slug: str, request: Request, body: ReencryptShareRequest):
     """Re-encrypt an encrypted share with a new password.
 
     Decrypts with old password, re-encrypts with new password.
     Useful for password rotation or adding double protection.
     """
+    ip = get_client_ip(request)
+    rate = check_password_rate_limit(ip, slug)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts. Try again later.",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     row = await _fetch_share_for_encrypt(slug)
 
     if not row.get("encrypted"):
