@@ -13,7 +13,7 @@ DropItX API's core product (content sharing, security primitives, team collabora
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Security Hardening** - Close the CRITICAL/HIGH findings from the 2026-08-12 public-endpoint audit before they're exploited over the Cloudflare Tunnel
+- [x] **Phase 1: Security Hardening** - Close the CRITICAL/HIGH findings from the 2026-08-12 public-endpoint audit before they're exploited over the Cloudflare Tunnel (completed 2026-08-15)
 - [ ] **Phase 2: Firebase Auth Migration Completion** - Verify, finish, and document the already-coded Firebase Auth backend end-to-end
 - [ ] **Phase 3: Deployment Path Finalization** - Pick and harden one deployment target with a working from-empty DB bootstrap and real end-to-end verification
 - [ ] **Phase 4: Test Coverage & Reliability** - Reach the PRD's >80% coverage target with enforced CI and reconciled testing docs
@@ -108,7 +108,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Security Hardening | 2/2 | In Progress|  |
+| 1. Security Hardening | 2/2 | Complete    | 2026-08-15 |
 | 2. Firebase Auth Migration Completion | 0/TBD | Not started | - |
 | 3. Deployment Path Finalization | 0/TBD | Not started | - |
 | 4. Test Coverage & Reliability | 0/TBD | Not started | - |
