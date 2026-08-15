@@ -71,6 +71,8 @@ API KEY REQUIRED:
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -258,14 +260,28 @@ class TestOptionalAuthEndpoints:
         assert resp.status_code in (401, 404, 500)
 
     @pytest.mark.asyncio
-    async def test_encrypt_share_no_auth(self, client):
+    @patch("app.public.encryption.get_admin_client")
+    async def test_encrypt_share_no_auth(self, mock_get_client, client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = (
+            MagicMock(data=[])
+        )
+
         resp = await client.post(f"/api/shares/{FAKE_SLUG}/encrypt", json={
             "password": "test123",
         })
         assert resp.status_code in (401, 404, 500)
 
     @pytest.mark.asyncio
-    async def test_encrypt_share_empty_delete_token(self, client):
+    @patch("app.public.encryption.get_admin_client")
+    async def test_encrypt_share_empty_delete_token(self, mock_get_client, client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = (
+            MagicMock(data=[])
+        )
+
         resp = await client.post(f"/api/shares/{FAKE_SLUG}/encrypt", json={
             "password": "test123",
             "delete_token": "",
