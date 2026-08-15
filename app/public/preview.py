@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from app.public.shares import _check_download_limit, _fetch_share
 from app.dependencies import get_client_ip
 from core.config import settings
+from core.rate_limit import check_public_read_rate_limit
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -291,6 +292,15 @@ async def get_share_preview(
 
     Does NOT increment download count. Does NOT trigger burn-after-reading.
     """
+    ip = get_client_ip(request)
+    rate = check_public_read_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     row = await _fetch_share(slug)
 
     # Check download limit (but don't increment)

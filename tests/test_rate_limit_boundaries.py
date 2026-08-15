@@ -11,6 +11,7 @@ import uuid
 from core.rate_limit import (
     check_password_rate_limit,
     check_bulk_download_rate_limit,
+    check_public_read_rate_limit,
 )
 
 
@@ -46,3 +47,15 @@ class TestBulkDownloadRateLimitBoundary:
 
         eleventh = check_bulk_download_rate_limit(ip)
         assert eleventh.success is False
+
+
+class TestPublicReadRateLimitBoundary:
+    def test_nth_succeeds_and_n_plus_1th_rejected(self):
+        ip = _fresh_ip()
+
+        for attempt in range(1, 61):
+            result = check_public_read_rate_limit(ip)
+            assert result.success is True, f"attempt {attempt} should succeed"
+
+        sixty_first = check_public_read_rate_limit(ip)
+        assert sixty_first.success is False

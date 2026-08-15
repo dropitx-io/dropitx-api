@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
-from core.rate_limit import check_password_rate_limit
+from core.rate_limit import check_password_rate_limit, check_public_read_rate_limit
 from core.security import hash_password, verify_password
 from core.supabase import get_admin_client
 
@@ -151,6 +151,15 @@ async def get_share_content(
     - E2E encryption metadata passthrough
     - Download limit enforcement
     """
+    ip = get_client_ip(request)
+    rate = check_public_read_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     row = await _fetch_share(slug)
 
     # Check download limit
@@ -477,6 +486,15 @@ async def download_share(
     - Handles burn-after-reading (burns after download)
     - Supports ?password= query param for password-protected shares
     """
+    ip = get_client_ip(request)
+    rate = check_public_read_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     row = await _fetch_share(slug)
 
     # Check download limit BEFORE serving
