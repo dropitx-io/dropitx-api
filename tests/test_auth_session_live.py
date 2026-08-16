@@ -15,6 +15,7 @@ Everything downstream — the RPC, the DB lookups — runs against real Postgres
 from __future__ import annotations
 
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import pytest
@@ -96,5 +97,50 @@ def test_full_provision_and_401_then_success_flow(client):
         # Provisioned now -> the same protected route returns 200.
         after_provisioning = client.get("/api/v1/keys", headers=AUTH)
         assert after_provisioning.status_code == 200
+    finally:
+        _delete_user(uid)
+
+
+def test_concurrent_first_time_session_calls_no_500(client):
+    uid = f"test-uid-{uuid.uuid4().hex}"
+    email = f"{uid}@example.com"
+    _override_claims(uid, email)
+
+    try:
+        # Two near-simultaneous first-time session calls for the SAME uid:
+        # both must succeed (ON CONFLICT absorbs the race, no unique-
+        # constraint violation surfaces as a 500).
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [
+                executor.submit(client.get, "/api/auth/session", headers=AUTH)
+                for _ in range(2)
+            ]
+            responses = [future.result() for future in futures]
+
+        assert [response.status_code for response in responses] == [200, 200]
+
+        # Exactly one row in each table afterward — no duplicates.
+        profiles = (
+            get_admin_client()
+            .table("user_profiles")
+            .select("id")
+            .eq("user_id", uid)
+            .execute()
+        )
+        assert len(profiles.data) == 1
+
+        users = (
+            get_admin_client()
+            .table("auth.users")
+            .select("id")
+            .eq("id", uid)
+            .execute()
+        )
+        assert len(users.data) == 1
+
+        # The provisioning transaction's commit is visible to the very next
+        # request — no stale-401 window.
+        protected = client.get("/api/v1/keys", headers=AUTH)
+        assert protected.status_code == 200
     finally:
         _delete_user(uid)
