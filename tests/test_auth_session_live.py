@@ -70,10 +70,31 @@ def test_full_provision_and_401_then_success_flow(client):
         assert protected.status_code == 401
         assert protected.json()["detail"]["code"] == "user_not_provisioned"
 
-        # RED: against the buggy RPC this call returns 500 (ambiguous
-        # "user_id" column reference), so the 200 assertion below fails.
+        # GREEN: the fixed RPC provisions and returns the profile.
         first = client.get("/api/auth/session", headers=AUTH)
         assert first.status_code == 200
         assert first.json()["profile"]["user_id"] == uid
+
+        # Second call with a different email: still 200, still exactly one
+        # user_profiles row, and the email update is reflected.
+        updated_email = f"updated-{uid}@example.com"
+        _override_claims(uid, updated_email)
+        second = client.get("/api/auth/session", headers=AUTH)
+        assert second.status_code == 200
+        assert second.json()["email"] == updated_email
+        assert second.json()["profile"]["user_id"] == uid
+
+        profiles = (
+            get_admin_client()
+            .table("user_profiles")
+            .select("id")
+            .eq("user_id", uid)
+            .execute()
+        )
+        assert len(profiles.data) == 1
+
+        # Provisioned now -> the same protected route returns 200.
+        after_provisioning = client.get("/api/v1/keys", headers=AUTH)
+        assert after_provisioning.status_code == 200
     finally:
         _delete_user(uid)

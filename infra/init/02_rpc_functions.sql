@@ -165,11 +165,13 @@ BEGIN
 
     INSERT INTO user_profiles (user_id)
     VALUES (p_uid)
-    ON CONFLICT (user_id) DO NOTHING;
+    ON CONFLICT ON CONSTRAINT user_profiles_user_id_key DO NOTHING;
 
     RETURN QUERY
-    SELECT user_id, username, display_name, bio, avatar_url, is_public, created_at, updated_at
+    SELECT user_profiles.user_id, user_profiles.username, user_profiles.display_name,
+           user_profiles.bio, user_profiles.avatar_url, user_profiles.is_public,
+           user_profiles.created_at, user_profiles.updated_at
     FROM user_profiles
-    WHERE user_id = p_uid;
+    WHERE user_profiles.user_id = p_uid;
 END;
 $$ LANGUAGE plpgsql;
