@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 2
 current_phase_name: Firebase Auth Migration Completion
 status: executing
-stopped_at: Completed 02-03-PLAN.md (02-02 still paused at human checkpoint)
-last_updated: "2026-08-16T06:02:12.285Z"
+stopped_at: "Completed 02-04-PLAN.md (Phase 2 execution: 02-01/02-03/02-04 done; 02-02 still paused at human checkpoint)"
+last_updated: "2026-08-16T06:12:50.132Z"
 last_activity: 2026-08-16
 last_activity_desc: Phase 2 execution started
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 6
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 ## Current Position
 
 Phase: 2 (Firebase Auth Migration Completion) — EXECUTING
-Plan: 3 of 4
+Plan: 4 of 4
 Status: Ready to execute
 Last activity: 2026-08-16 — Phase 2 execution started
 
-Progress: [███████░░░] 67%
+Progress: [████████░░] 83%
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [███████░░░] 67%
 | Phase 01 P02 | 25min | 3 tasks | 8 files |
 | Phase 02 P01 | 15min | 2 tasks | 3 files |
 | Phase 02 P03 | 3min | 2 tasks | 9 files |
+| Phase 02 P04 | 7min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -83,6 +84,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 2 P03: AUTH-05 doc pass uses narrow scope - auth-mechanism clauses corrected only; storage/DB-layout claims left byte-identical for Phase 3 DEPLOY-05
 - [Phase ?]: Phase 2 P03: TESTING.md supabase_* mock identifiers and GETTING-STARTED Supabase walkthrough kept untouched - real code names / separate onboarding rework, not auth-mechanism prose
 - [Phase ?]: Phase 2 P03: pre-existing uncommitted doc-refresh edits in CLAUDE.md/README.md/codebase-summary.md verified against plan and adopted into task commits (plan line refs were authored against them)
+- [Phase 02]: Phase 2 P04: system-architecture.md auth box relabeled as a unit (Supabase Auth/JWKS keys -> Firebase Auth/Firebase certs); neighboring table/bucket boxes left byte-identical for Phase 3 DEPLOY-05
+- [Phase 02]: Phase 2 P04: adopted interrupted-session doc-refresh edits in deployment-guide/system-architecture/project-roadmap/project-overview-pdr — plan line refs were authored against that working-tree state
+- [Phase 02]: Phase 2 P04: docs/API.md get_api_key stale line ref (:70 vs actual :96) logged to deferred-items.md, not fixed — API-key citation, outside AUTH-05 auth-mechanism scope
 
 ### Pending Todos
 
@@ -110,6 +114,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-16T06:02:12.272Z
-Stopped at: Completed 02-03-PLAN.md (02-02 still paused at human checkpoint)
+Last session: 2026-08-16T06:12:36.623Z
+Stopped at: Completed 02-04-PLAN.md (Phase 2 execution: 02-01/02-03/02-04 done; 02-02 still paused at human checkpoint)
 Resume file: None
