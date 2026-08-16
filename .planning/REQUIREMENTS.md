@@ -21,8 +21,8 @@ Requirements for this roadmap. Each maps to exactly one phase.
 ### Firebase Auth Migration Completion (AUTH)
 
 - [ ] **AUTH-01**: Every protected route accepts a valid Firebase ID token and resolves the correct authenticated user via the `TEXT`-keyed `auth.users` table
-- [ ] **AUTH-02**: A first-time Firebase login via `GET /api/auth/session` provisions `auth.users` + `user_profiles` rows and returns the profile; repeat calls with the same uid are idempotent (no duplicate rows) and reflect updated email
-- [ ] **AUTH-03**: A Firebase-authenticated user hitting a protected route before ever calling `/api/auth/session` gets `401 user_not_provisioned`; after calling it, the same route succeeds
+- [x] **AUTH-02**: A first-time Firebase login via `GET /api/auth/session` provisions `auth.users` + `user_profiles` rows and returns the profile; repeat calls with the same uid are idempotent (no duplicate rows) and reflect updated email
+- [x] **AUTH-03**: A Firebase-authenticated user hitting a protected route before ever calling `/api/auth/session` gets `401 user_not_provisioned`; after calling it, the same route succeeds
 - [ ] **AUTH-04**: `FIREBASE_PROJECT_ID` is documented in `.env.example`/`.env.local.example` and present in every active deployment target's environment/secrets
 - [ ] **AUTH-05**: Project docs (`CLAUDE.md`, `docs/ARCHITECTURE.md`, `docs/CONFIGURATION.md`, and related) describe Firebase — not Supabase JWT/JWKS — as the live auth mechanism
 
@@ -89,8 +89,8 @@ Explicitly excluded. Documented to prevent scope creep.
 | SEC-05 | Phase 1 | Complete |
 | SEC-06 | Phase 1 | Complete |
 | AUTH-01 | Phase 2 | Pending |
-| AUTH-02 | Phase 2 | Pending |
-| AUTH-03 | Phase 2 | Pending |
+| AUTH-02 | Phase 2 | Complete |
+| AUTH-03 | Phase 2 | Complete |
 | AUTH-04 | Phase 2 | Pending |
 | AUTH-05 | Phase 2 | Pending |
 | DEPLOY-01 | Phase 3 | Pending |

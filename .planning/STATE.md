@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 2
 current_phase_name: Firebase Auth Migration Completion
 status: executing
-stopped_at: Phase 2 UI-SPEC approved
-last_updated: "2026-08-16T02:52:09.563Z"
-last_activity: 2026-08-15
-last_activity_desc: Initial roadmap created from ingested docs (PRD + 2 SPECs + 14 DOC references + security audit + Dokploy spec review)
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-08-16T05:46:47.193Z"
+last_activity: 2026-08-16
+last_activity_desc: Phase 2 execution started
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 6
-  completed_plans: 2
+  completed_plans: 3
 ---
 
 # Project State
@@ -23,16 +23,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** Let anyone go from "I have HTML/Markdown/text" to "here's a shareable, optionally password-protected/E2E-encrypted URL" in one API call, reliably.
-**Current focus:** Phase 1 — Security Hardening
+**Current focus:** Phase 2 — Firebase Auth Migration Completion
 
 ## Current Position
 
-Phase: 2 — Firebase Auth Migration Completion
-Plan: Not started
+Phase: 2 (Firebase Auth Migration Completion) — EXECUTING
+Plan: 2 of 4
 Status: Ready to execute
-Last activity: 2026-08-15 — Phase 1 complete, transitioned to Phase 2
+Last activity: 2026-08-16 — Phase 2 execution started
 
-Progress: [██████████] 100%
+Progress: [█████░░░░░] 50%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [██████████] 100%
 |------|----------|-------|-------|
 | Phase 01 P01 | 20min | 3 tasks | 5 files |
 | Phase 01 P02 | 25min | 3 tasks | 8 files |
+| Phase 02 P01 | 15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Reused the exact _check_rpc wrapper convention (check_oembed_rate_limit's shape) for check_bulk_download_rate_limit/check_public_read_rate_limit/check_domain_resolve_rate_limit — no new rate-limiting mechanism introduced
 - [Phase ?]: All three new SEC-03/04/05 rate-limit buckets stay fail-open, matching existing cost/DoS-abuse bucket convention
 - [Phase ?]: No shared-secret/internal-auth header added to domains/resolve — rate limiting alone satisfies SEC-05's minimum bar per plan scope
+- [Phase ?]: Phase 2 P01: provision_firebase_user fix shipped as new migration 009 (008 immutable); constraint-named ON CONFLICT + fully-qualified RETURN QUERY; infra/init and 009 byte-identical
+- [Phase ?]: Phase 2 P01: live auth tests fake only JWT verification - dependency_overrides for the session route, patched app.dependencies.verify_firebase_jwt + Bearer header for get_current_user's direct-call path (tests/test_dependencies.py convention)
+- [Phase ?]: Phase 2 P01: TDD RED asserted the desired 200 and failed against the buggy RPC's live 500 ambiguous-column error (restored 008 definition live first), proving real reproduction
 
 ### Pending Todos
 
@@ -102,6 +106,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T16:38:24.711Z
-Stopped at: Phase 2 UI-SPEC approved
-Resume file: .planning/phases/02-firebase-auth-migration-completion/02-UI-SPEC.md
+Last session: 2026-08-16T05:46:47.143Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None

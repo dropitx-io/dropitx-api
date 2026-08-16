@@ -58,12 +58,12 @@ Plans:
   4. `FIREBASE_PROJECT_ID` is present in `.env.example`, `.env.local.example`, and the deployed environment's secret/config for every active deployment target
   5. `CLAUDE.md` and the architecture/config docs describe Firebase — not Supabase JWT/JWKS — as the live auth mechanism
 
-**Plans**: 4 plans
+**Plans**: 1/4 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 02-01-PLAN.md — Fix provision_firebase_user RPC (ambiguous column bug), verify live single-caller + concurrent-caller flows (AUTH-02, AUTH-03)
+- [x] 02-01-PLAN.md — Fix provision_firebase_user RPC (ambiguous column bug), verify live single-caller + concurrent-caller flows (AUTH-02, AUTH-03)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -116,6 +116,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Security Hardening | 2/2 | Complete    | 2026-08-15 |
-| 2. Firebase Auth Migration Completion | 0/4 | Not started | - |
+| 2. Firebase Auth Migration Completion | 1/4 | In Progress|  |
 | 3. Deployment Path Finalization | 0/TBD | Not started | - |
 | 4. Test Coverage & Reliability | 0/TBD | Not started | - |
