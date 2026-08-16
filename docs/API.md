@@ -24,13 +24,13 @@ The `/api` prefix is shared by `invite_actions`, `public_router`, and `internal_
 
 Two credential mechanisms are injected as FastAPI dependencies in `app/dependencies.py`. Both are transported via `Authorization: Bearer <token>` unless noted.
 
-- **JWT (Supabase Auth)** — `get_current_user` (`app/dependencies.py:41`) verifies the Supabase JWT against JWKS and returns a `User(id, email)`. `get_optional_user` (`app/dependencies.py:58`) returns `User | None` without raising, for endpoints that associate content with a user when logged in but remain usable anonymously. Missing/invalid token → `401`.
+- **JWT (Firebase Auth)** — `get_current_user` (`app/dependencies.py:56`) verifies the Firebase ID token against Google's certs and returns a `User(id, email)`, requiring the user be provisioned (else `401 user_not_provisioned`). `get_optional_user` (`app/dependencies.py:84`) returns `User | None` without raising, for endpoints that associate content with a user when logged in but remain usable anonymously. Missing/invalid token → `401`.
 - **API Key** — `get_api_key` (`app/dependencies.py:70`) accepts raw keys with the `shk_` (personal) or `sht_` (team) prefix, looks up the SHA-256 hash in the `api_keys` table, rejects revoked keys and team keys whose owner is no longer a member, and returns `ApiKeyAuth(user_id, key_id, team_id)`. The raw key is returned **once** at creation; only the hash is stored. A fire-and-forget task updates `last_used_at`.
 
 Per-endpoint auth is labelled in the tables below as:
 
 - **Public** — no credential required.
-- **JWT** — valid Supabase JWT required (`get_current_user`).
+- **JWT** — valid Firebase ID token required, and the user must be provisioned (`get_current_user`).
 - **JWT optional** — `get_optional_user`; works anonymously, enriches when authenticated.
 - **API key** — `get_api_key` (Bearer `shk_…` / `sht_…`).
 - **API key optional** — header-accepted key (e.g. `X-API-Key`) that links the upload to a user when present.
