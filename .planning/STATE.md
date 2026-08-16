@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 2
 current_phase_name: Firebase Auth Migration Completion
 status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-08-16T05:46:47.193Z"
+stopped_at: Completed 02-03-PLAN.md (02-02 still paused at human checkpoint)
+last_updated: "2026-08-16T06:02:12.285Z"
 last_activity: 2026-08-16
 last_activity_desc: Phase 2 execution started
 progress:
   total_phases: 2
   completed_phases: 1
   total_plans: 6
-  completed_plans: 3
+  completed_plans: 4
 ---
 
 # Project State
@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 ## Current Position
 
 Phase: 2 (Firebase Auth Migration Completion) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-08-16 — Phase 2 execution started
 
-Progress: [█████░░░░░] 50%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [█████░░░░░] 50%
 | Phase 01 P01 | 20min | 3 tasks | 5 files |
 | Phase 01 P02 | 25min | 3 tasks | 8 files |
 | Phase 02 P01 | 15min | 2 tasks | 3 files |
+| Phase 02 P03 | 3min | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -79,6 +80,9 @@ Recent decisions affecting current work:
 - [Phase ?]: Phase 2 P01: provision_firebase_user fix shipped as new migration 009 (008 immutable); constraint-named ON CONFLICT + fully-qualified RETURN QUERY; infra/init and 009 byte-identical
 - [Phase ?]: Phase 2 P01: live auth tests fake only JWT verification - dependency_overrides for the session route, patched app.dependencies.verify_firebase_jwt + Bearer header for get_current_user's direct-call path (tests/test_dependencies.py convention)
 - [Phase ?]: Phase 2 P01: TDD RED asserted the desired 200 and failed against the buggy RPC's live 500 ambiguous-column error (restored 008 definition live first), proving real reproduction
+- [Phase ?]: Phase 2 P03: AUTH-05 doc pass uses narrow scope - auth-mechanism clauses corrected only; storage/DB-layout claims left byte-identical for Phase 3 DEPLOY-05
+- [Phase ?]: Phase 2 P03: TESTING.md supabase_* mock identifiers and GETTING-STARTED Supabase walkthrough kept untouched - real code names / separate onboarding rework, not auth-mechanism prose
+- [Phase ?]: Phase 2 P03: pre-existing uncommitted doc-refresh edits in CLAUDE.md/README.md/codebase-summary.md verified against plan and adopted into task commits (plan line refs were authored against them)
 
 ### Pending Todos
 
@@ -106,6 +110,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-16T05:46:47.143Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-08-16T06:02:12.272Z
+Stopped at: Completed 02-03-PLAN.md (02-02 still paused at human checkpoint)
 Resume file: None
