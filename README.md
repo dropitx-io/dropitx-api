@@ -95,21 +95,42 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | Health check |
+| `GET` | `/health` | Health check (liveness) |
+| `GET` | `/health/deep` | Deep health check (includes database ping) |
 | `GET` | `/api/search?q=` | Full-text search across public shares |
-| `POST` | `/api/analytics/track` | View tracking (always returns 200) |
-| `GET` | `/api/oembed?url=` | oEmbed discovery for share URLs |
+| `GET` | `/api/explore?tag=&sort=` | Public gallery (trending, tag-filtered) |
+| `GET` | `/api/profiles/{handle}` | Public user profile + shares |
+| `GET` | `/api/shares/{slug}/content` | View share content |
+| `GET` | `/api/shares/{slug}/download-status` | Check download status |
+| `GET` | `/api/shares/{slug}/download` | Download share as file |
+| `GET` | `/api/shares/{slug}/versions` | Read-only version history |
+| `GET` | `/api/shares/{slug}/preview` | File preview (images, PDF, code, text, media) |
+| `GET` | `/api/shares/{slug}/qrcode` | Generate QR code (SVG or PNG) |
+| `GET` | `/api/shares/{slug}/comments` | List comments on share |
 | `POST` | `/api/shares/{slug}/unlock` | Verify share password |
+| `POST` | `/api/shares/{slug}/burn` | Mark share as burned/consumed |
+| `POST` | `/api/shares/{slug}/comments` | Add comment to share |
 | `DELETE` | `/api/shares/{slug}` | Delete share (owner or delete_token) |
 | `POST` | `/api/shares/{slug}/set-password` | Set or clear share password |
+| `POST` | `/api/shares/{slug}/encrypt` | Encrypt share with password |
+| `POST` | `/api/shares/{slug}/reencrypt` | Re-encrypt with new password |
+| `POST` | `/api/analytics/track` | View tracking (always returns 200) |
+| `GET` | `/api/oembed?url=` | oEmbed discovery for embeds |
+| `POST` | `/api/encryption/generate-key` | Generate encryption key bundle |
+| `POST` | `/api/requests/{slug}/upload` | Public upload to request link |
 
 ### Authenticated Endpoints (JWT)
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/upload` | Upload HTML/MD file (optional JWT) |
-| `POST` | `/api/publish` | Publish editor content |
-| `POST` | `/api/images/upload` | Upload embedded image (PNG/JPG/GIF/WebP, 5MB max) |
+| `POST` | `/api/upload` | Upload HTML/MD file (optional JWT, 50MB max) |
+| `POST` | `/api/upload/batch` | Batch upload (multiple files) |
+| `POST` | `/api/upload/multi` | Multi-file upload (share groups) |
+| `POST` | `/api/publish` | Publish editor content with custom slug |
+| `POST` | `/api/images/upload` | Upload embedded image (5MB max, PNG/JPG/GIF/WebP) |
+| `POST` | `/api/requests` | Create file request/upload link |
+| `GET` | `/api/dashboard/requests` | List user's file requests |
+| `GET` | `/api/download/group/{slug}` | Bulk download group as ZIP |
 | `GET` | `/api/dashboard/teams` | List user's teams |
 | `POST` | `/api/dashboard/teams` | Create a team (caller becomes owner) |
 | `GET` | `/api/dashboard/teams/{slug}` | Get team details (member only) |
@@ -118,6 +139,10 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | `GET` | `/api/dashboard/teams/{slug}/members` | List team members |
 | `PATCH` | `/api/dashboard/teams/{slug}/members` | Change member role (owner only) |
 | `DELETE` | `/api/dashboard/teams/{slug}/members` | Remove member |
+| `GET` | `/api/dashboard/teams/{slug}/domains` | List custom domains (owner only) |
+| `POST` | `/api/dashboard/teams/{slug}/domains` | Create custom domain (owner only) |
+| `PATCH` | `/api/dashboard/teams/{slug}/domains/{id}` | Update domain config (owner only) |
+| `DELETE` | `/api/dashboard/teams/{slug}/domains/{id}` | Delete domain (owner only) |
 | `GET` | `/api/dashboard/teams/{slug}/invites` | List team invites |
 | `POST` | `/api/dashboard/teams/{slug}/invites` | Create invite (editor+) |
 | `DELETE` | `/api/dashboard/teams/{slug}/invites` | Revoke invite (editor+) |
@@ -128,6 +153,7 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | `GET` | `/api/dashboard/invitations` | List received invites |
 | `POST` | `/api/invite/accept` | Accept team invite |
 | `POST` | `/api/invite/decline` | Decline team invite |
+| `POST` | `/api/shares/{slug}/stars` | Star a share (JWT required) |
 
 ### API Key Endpoints (Bearer `shk_`/`sht_`)
 
@@ -183,12 +209,12 @@ curl "http://localhost:8000/api/search?q=hello&page=1&limit=10"
 
 | Method | Header | Endpoints |
 |--------|--------|-----------|
-| JWT (Supabase) | `Authorization: Bearer <jwt>` | Dashboard, upload, publish, images, invites, v1 keys |
+| JWT (Firebase) | `Authorization: Bearer <jwt>` | Dashboard, upload, publish, images, invites, v1 keys |
 | API Key | `Authorization: Bearer shk_...` or `sht_...` | v1 documents only |
 | Optional JWT | `Authorization: Bearer <jwt>` | Upload (associates with user if present) |
 | None | — | Search, analytics, oEmbed, health, share unlock |
 
-JWT tokens are verified against Supabase JWKS (`/auth/v1/.well-known/jwks.json`) with 10-minute key caching. API keys are stored as SHA-256 hashes; the raw key is returned only once on creation.
+JWTs are Firebase ID tokens, verified via RS256 against Google's x509 cert endpoint and cached for ~1 hour (`_CERTS_TTL` in `core/security.py`; the old 10-minute figure was Supabase's JWKS cache interval). API keys are stored as SHA-256 hashes; the raw key is returned only once on creation.
 
 ## Deployment
 

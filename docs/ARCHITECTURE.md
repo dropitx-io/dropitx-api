@@ -3,9 +3,9 @@
 
 ## System overview
 
-DropItX API is a FastAPI backend (Python ≥ 3.12, app version `0.3.0`) that powers a file-and-text sharing product with team collaboration. It is a thin, stateless service layer over **Supabase**: authentication, the Postgres database, and object storage all live in Supabase, while this API enforces business rules, composes upload/download flows, and exposes a clean REST surface.
+DropItX API is a FastAPI backend (Python ≥ 3.12, app version `0.3.0`) that powers a file-and-text sharing product with team collaboration. It is a thin, stateless service layer over **Supabase**: the Postgres database and object storage all live in Supabase, while authentication uses Firebase ID tokens verified against Google's public certs, and this API enforces business rules, composes upload/download flows, and exposes a clean REST surface.
 
-Primary inputs are HTTP requests from three consumers — the Next.js web frontend (`dropitx/`), the Python CLI + MCP server (`dropitx-cli/`), and a bundled Node.js CLI (`cli/`). Primary outputs are JSON share metadata, streamed file content, and team-management responses. The service authenticates via two mechanisms (Supabase JWTs and prefixed API keys), writes content to two Supabase Storage buckets (`html-files`, `shares`), and delegates persistence and atomic counters to Postgres RPC functions. It is architected in a **layered, router-aggregated style**: a single `FastAPI` app mounts four versioned/scope routers, each route handler depends on injected auth dependencies and calls into shared `core/` infrastructure.
+Primary inputs are HTTP requests from three consumers — the Next.js web frontend (`dropitx/`), the Python CLI + MCP server (`dropitx-cli/`), and a bundled Node.js CLI (`cli/`). Primary outputs are JSON share metadata, streamed file content, and team-management responses. The service authenticates via two mechanisms (Firebase ID tokens and prefixed API keys), writes content to two Supabase Storage buckets (`html-files`, `shares`), and delegates persistence and atomic counters to Postgres RPC functions. It is architected in a **layered, router-aggregated style**: a single `FastAPI` app mounts four versioned/scope routers, each route handler depends on injected auth dependencies and calls into shared `core/` infrastructure.
 
 The process is stateless and horizontally scalable; it is deployed to Render via `render.yaml` and started with `uvicorn app.main:app`. A single async background task runs a periodic cleanup loop for expired content.
 
@@ -30,13 +30,13 @@ graph TD
     subgraph CORE["core/ infrastructure"]
         CFG["config"]
         SB["supabase.py<br/>3 client types"]
-        SEC["security<br/>JWT/JWKS · API keys · bcrypt"]
+        SEC["security<br/>JWT (Firebase) · API keys · bcrypt"]
         RL["rate_limit<br/>Postgres RPC"]
         ENC["encryption · extract_text ·<br/>language_detect · thumbnail"]
     end
 
     subgraph SUPA["Supabase"]
-        AUTH["Auth (JWKS)"]
+        AUTH["Auth (Firebase)"]
         DB[("Postgres<br/>tables + RPCs")]
         ST["Storage buckets<br/>html-files · shares"]
     end
@@ -59,7 +59,7 @@ graph TD
 A representative write flow — **publishing editor content** (`POST /api/publish`, `app/internal/publish.py`):
 
 1. Request enters `RequestTrackingMiddleware` (mints/reuses a request ID, sets context var) then `SecurityHeadersMiddleware`; CORS is applied last-added/first-executed.
-2. The route's `user: User = Depends(get_current_user)` dependency extracts the `Authorization: Bearer …` token, calls `verify_supabase_jwt` (JWKS-cached for 10 min in `core/security.py`) via `asyncio.to_thread`, and returns a frozen `User(id, email)` dataclass — or raises `HTTPException(401)`.
+2. The route's `user: User = Depends(get_current_user)` dependency extracts the `Authorization: Bearer …` token, calls `verify_firebase_jwt` (Google-certs-cached in `core/security.py`) via `asyncio.to_thread`, and returns a frozen `User(id, email)` dataclass — or raises `HTTPException(401)`.
 3. Handler runs `check_upload_rate_limit(ip)` (10/min/IP, fail-open) against the Postgres RPC `check_rate_limit`, wrapped in `asyncio.to_thread`.
 4. A slug + `delete_token` are generated via `core/nanoid.py`; content is uploaded to the `html-files` bucket through `get_admin_client().storage.from_("html-files").upload(...)`.
 5. A row is inserted into the `shares` table. **If the insert fails after a successful upload, a compensating transaction removes the orphaned storage object** (`_cleanup_storage`).
@@ -81,7 +81,7 @@ Uncaught domain exceptions are translated by global handlers in `app/main.py`: `
 | --- | --- | --- |
 | `Settings` | `core/config.py` | Pydantic-settings config loaded from `.env`; exposes `cors_origins` property. |
 | `get_admin_client()` / `get_user_client(token)` / `get_anon_client()` | `core/supabase.py` | Three Supabase client flavors: service-role (bypasses RLS — used by most routes), per-request user JWT (RLS-enforced), and anon. |
-| `verify_supabase_jwt(token)` | `core/security.py` | RS256/ES256 JWT verification against cached Supabase JWKS (10-min TTL). |
+| `verify_firebase_jwt(token)` | `core/security.py` | RS256 JWT verification against Google's cached x509 certs. |
 | `generate_api_key` / `hash_api_key` | `core/security.py` | Generates `shk_` (personal) / `sht_` (team) keys; stores SHA-256 hashes, returns raw key once. |
 | `User`, `ApiKeyAuth` | `app/dependencies.py` | Frozen auth dataclasses yielded by `get_current_user`, `get_optional_user`, `get_api_key`. |
 | `check_*_rate_limit` | `core/rate_limit.py` | Thin wrappers over the `check_rate_limit` Postgres RPC; configurable fail-open / fail-closed. |
