@@ -2,149 +2,245 @@
 
 ## Overview
 
-DropItX API is a FastAPI application (~2,530 LOC across 30 source files) providing file/text sharing with team collaboration. Auth via Supabase Auth (JWT) and API keys. Data stored in Supabase (Postgres + Storage).
+DropItX API is a FastAPI application (v0.3.0, ~3,800 LOC across 50+ source files) providing file/text sharing with team collaboration, end-to-end encryption, discovery features, and file requests. Authentication via Firebase ID tokens (JWT) and API keys. Data stored in Supabase (Postgres + Storage).
 
 ## Directory Structure
 
 ```
 dropitx-api/
-├── core/                          # Shared utilities (366 LOC)
-│   ├── config.py (18)            # Pydantic BaseSettings
-│   ├── supabase.py (33)          # Client factory (user/admin/anon)
-│   ├── security.py (122)         # JWT, API key, password utilities
-│   ├── extract_text.py (90)      # Plain text from HTML/MD
-│   ├── nanoid.py (17)            # Slug/token generation
-│   └── rate_limit.py (86)        # Postgres RPC rate limiting
+├── core/                          # Shared utilities & services (366 LOC)
+│   ├── config.py                 # Pydantic BaseSettings from .env
+│   ├── supabase.py               # Client factory (user/admin/anon)
+│   ├── security.py               # JWT, API key, password utilities
+│   ├── encryption.py             # AES-256-GCM, PBKDF2 (e2e)
+│   ├── extract_text.py           # Plain text from HTML/Markdown
+│   ├── nanoid.py                 # Slug/token generation
+│   ├── rate_limit.py             # Postgres RPC rate limiting
+│   ├── language_detect.py        # Language detection via ngram
+│   ├── thumbnail.py              # Image thumbnail generation
+│   ├── exceptions.py             # Custom error types
+│   ├── logging_config.py         # Structured JSON logging
+│   └── middleware.py             # Request tracking, security headers
 │
 ├── app/
-│   ├── main.py (34)              # FastAPI app, CORS, routers
-│   ├── dependencies.py (174)     # Auth Depends providers
+│   ├── main.py                   # FastAPI app, CORS, routers, health
+│   ├── dependencies.py           # Auth Depends (JWT, API key, IP)
 │   │
 │   ├── v1/                       # API-key-authenticated (541 LOC)
-│   │   ├── router.py (11)
-│   │   ├── documents.py (273)    # Document CRUD
-│   │   ├── document_helpers.py (87)
-│   │   └── keys.py (170)         # API key management
+│   │   ├── router.py             # Route registration
+│   │   ├── documents.py          # Document CRUD via API key
+│   │   ├── document_helpers.py   # Shared document logic
+│   │   ├── keys.py               # API key management (CRUD)
+│   │   └── revisions.py          # Version history endpoints
 │   │
-│   ├── dashboard/                # JWT-authenticated team mgmt (654 LOC)
-│   │   ├── router.py (21)
-│   │   ├── teams.py (204)        # Team + member CRUD
-│   │   ├── team_helpers.py (78)  # Role checks, lookups
-│   │   ├── team_invites.py (258) # Invites, events, shares
-│   │   └── invitations.py (93)
+│   ├── dashboard/                # JWT-authenticated team mgmt (850+ LOC)
+│   │   ├── router.py             # Route registration
+│   │   ├── teams.py              # Team + member CRUD
+│   │   ├── team_helpers.py       # Role checks, team lookups
+│   │   ├── team_invites.py       # Invites, events, shares
+│   │   ├── invitations.py        # User's received invites
+│   │   └── domains.py            # Custom domain management
 │   │
-│   ├── internal/                 # Authenticated upload/publish (463 LOC)
-│   │   ├── router.py (11)
-│   │   ├── upload.py (179)       # File upload
-│   │   ├── publish.py (188)      # Editor publish
-│   │   └── images.py (85)        # Image upload
+│   ├── internal/                 # Authenticated upload/publish (800+ LOC)
+│   │   ├── router.py             # Route registration
+│   │   ├── upload.py             # File upload (HTML/MD, 50MB max)
+│   │   ├── multi_upload.py       # Batch upload / share groups
+│   │   ├── publish.py            # Editor publish (custom slugs)
+│   │   ├── images.py             # Embedded image upload
+│   │   ├── download.py           # Bulk download (ZIP)
+│   │   ├── file_requests.py      # Upload request links (auth)
+│   │   └── cli_upload.py         # CLI-specific upload
 │   │
-│   └── public/                   # Unauthenticated endpoints (460 LOC)
-│       ├── router.py (13)
-│       ├── shares.py (170)       # Share delete, password, unlock
-│       ├── search.py (56)        # Full-text search
-│       ├── analytics.py (93)     # View tracking
-│       └── oembed.py (128)       # oEmbed discovery
+│   ├── public/                   # Unauthenticated endpoints (1000+ LOC)
+│   │   ├── router.py             # Route registration
+│   │   ├── shares.py             # Share delete, password, unlock
+│   │   ├── search.py             # Full-text search (RPC)
+│   │   ├── analytics.py          # View tracking
+│   │   ├── oembed.py             # oEmbed discovery
+│   │   ├── qrcode.py             # QR code generation
+│   │   ├── comments.py           # Share comments
+│   │   ├── versions.py           # Version history (read-only)
+│   │   ├── encryption.py         # E2E encryption endpoints
+│   │   ├── preview.py            # File preview (images, PDF, text, etc)
+│   │   ├── explore.py            # Gallery feed (trending, tags)
+│   │   ├── stars.py              # Star/unstar shares
+│   │   ├── profiles.py           # Public user profiles
+│   │   ├── languages.py          # Language tagging
+│   │   └── file_requests.py      # Public upload to requests
+│   │
+│   └── services/
+│       └── cleanup.py            # Background cleanup (expired shares/requests)
 │
-├── models/                        # Pydantic DTOs (198 LOC)
-│   ├── share.py (76)
-│   ├── team.py (72)
-│   ├── api_key.py (28)
-│   └── analytics.py (22)
+├── models/                        # Pydantic DTOs (298 LOC)
+│   ├── share.py                  # Share models (input/output)
+│   ├── team.py                   # Team models
+│   ├── api_key.py                # API key models
+│   ├── analytics.py              # Analytics models
+│   ├── domain.py                 # Custom domain models
+│   └── file_request.py           # File request models
 │
-├── tests/                         # Test suite
+├── tests/                         # Test suite (~8 files, ~25-30% coverage)
+│   ├── test_all_endpoints.py     # Endpoint validation
+│   ├── test_encryption.py        # E2E encryption
+│   ├── test_file_requests.py     # Upload requests
+│   ├── test_custom_domains.py    # Domain verification
+│   ├── test_preview.py           # File preview
+│   ├── test_one_time_download.py # Burn-after-read
+│   └── test_public_api_validation.py
+│
 ├── supabase/                      # Supabase migrations
+│   ├── migrations/
+│   │   ├── 20260529_base_schema.sql          # Core tables, auth
+│   │   ├── 20260530_competitor_features.sql # Multi-file, encryption, comments
+│   │   ├── 20260531_file_requests.sql       # File request tables
+│   │   └── 20260531_fix_schema_mismatches.sql
+│   └── config.toml                # Supabase CLI config
+│
+├── migrations/                    # Additional migrations (alternate location)
+│   ├── 001_add_encryption_columns.sql
+│   ├── 001_create_share_files.sql
+│   ├── 002_create_share_comments.sql
+│   ├── 003_create_share_revisions.sql
+│   ├── 004_custom_domains.sql
+│   ├── 004_explore_gallery.sql
+│   ├── 005_add_one_time_download.sql
+│   └── 006_add_language_column.sql
+│
+├── cli/                           # Standalone npm CLI (Commander-based JS)
+│   ├── package.json
+│   ├── bin/dropitx.js
+│   ├── lib/commands/              # login, upload, download, list, delete
+│   └── lib/api.js
+│
+├── docs/                          # Documentation
 ├── render.yaml                    # Render deployment blueprint
-├── requirements.txt               # Python dependencies
-└── CLAUDE.md                      # Project instructions
+├── requirements.txt               # Python 3.12+ dependencies
+├── pyproject.toml                # Project metadata & test config
+├── CLAUDE.md                      # Developer instructions
+└── README.md                      # Quick start guide
 ```
 
 ## Module Details
 
-### core/config.py
+### Core Services
+
+#### config.py
 Pydantic `BaseSettings` loading from `.env`. Exposes `settings` singleton with `supabase_url`, `supabase_anon_key`, `supabase_service_role_key`, `allowed_origins`, `frontend_url`. `cors_origins` property splits comma-separated origins.
 
-### core/supabase.py
+#### supabase.py
 Three client types:
-- **`get_user_client(token)`** — per-request, sets JWT on PostgREST, RLS applies
-- **`get_admin_client()`** — service-role key, bypasses RLS (used in all routes)
-- **`get_anon_client()`** — no user context, base client
+- **`get_user_client(token)`** — per-request, sets JWT, RLS applies
+- **`get_admin_client()`** — service-role key, bypasses RLS (used in routes)
+- **`get_anon_client()`** — no user context
 
-Base client is lazy-initialized and reused. Admin client is created fresh each call.
+Base client lazy-initialized, admin client fresh per call (no pooling).
 
-### core/security.py
-- **JWT verification**: Fetches JWKS from Supabase Auth (`/auth/v1/.well-known/jwks.json`), caches for 10 min. Verifies RS256 with audience set to Supabase URL.
-- **API key generation**: `shk_` (personal) / `sht_` (team) prefix + 48 hex chars. Stored as SHA-256 hash.
-- **Password hashing**: bcrypt with 12 rounds.
+#### security.py
+- **JWT**: Fetches x509 certs from Google (Firebase ID token verification), ~1hr cache, RS256 verification
+- **API keys**: `shk_`/`sht_` prefix + 48 hex chars, SHA-256 hashed storage
+- **Passwords**: bcrypt with 12 rounds
 
-### core/extract_text.py
-Regex-based plain text extraction from HTML and Markdown. Strips tags, code blocks, formatting. Limited to 100 KB input. Produces `content_text` for full-text search indexing.
+#### encryption.py
+- **E2E Encryption**: AES-256-GCM with 12-byte IV
+- **Key Derivation**: PBKDF2 (100k iterations, 32-byte salt)
+- **Zero-Knowledge**: Server never sees plaintext; client derives key from password
 
-### core/nanoid.py
-- `generate_slug()` — 10-char alphanumeric URL slug (secrets.choice)
-- `generate_delete_token()` — 32-char hex token for unauthenticated deletion
+#### extract_text.py
+Regex-based plain text extraction from HTML and Markdown. Strips tags, code blocks, formatting. Limited to 100 KB input.
 
-### core/rate_limit.py
-Postgres RPC-based rate limiting via `check_rate_limit` function. Returns `RateLimitResult` with success/limit/remaining/reset. Configurable fail-open (returns success on DB error) vs fail-closed.
+#### language_detect.py
+Language detection via character n-grams (no external dependencies). Detects 50+ languages.
 
-Predefined limits:
-- Upload: 10/min/IP (fail-open)
-- Password unlock: 5/10min/IP+slug (fail-closed)
-- oEmbed: 60/min/IP (fail-open)
-- Analytics: 60/min/IP (fail-open)
+#### thumbnail.py
+Image thumbnail generation for preview functionality. Supports PNG, JPG, GIF, WebP.
 
-### app/dependencies.py
-FastAPI `Depends` providers:
-- **`get_current_user`** — extracts JWT from Bearer header, returns `User(id, email)`
-- **`get_optional_user`** — same but returns `None` on failure
-- **`get_api_key`** — validates `shk_`/`sht_` Bearer token against DB, checks revocation and team membership, fire-and-forget `last_used_at` update
-- **`get_client_ip`** — extracts from X-Forwarded-For, X-Real-IP, or request.client
+#### rate_limit.py
+Postgres RPC `check_rate_limit(p_key, p_max_attempts, p_window_secs)` returns `{success, remaining, reset_at}`. Configurable fail-open vs fail-closed.
 
-### app/v1/documents.py
-Full CRUD for documents via API key auth. Uses `shares` bucket. Supports team documents via `team_shares` join. Compensating transactions: cleans up storage if DB insert fails.
+### Route Groups
 
-### app/v1/keys.py
-API key management. Create (returns raw key once), list (filter by team), revoke (soft-delete via `revoked_at`). Team key creation requires editor+ role.
+#### v1/ (API Key Auth)
+**Document CRUD via API key** (`shk_` personal or `sht_` team).
 
-### app/dashboard/teams.py
-Team CRUD (list, create, get, update, delete). Member management (list, change role, remove). Owner-only for destructive operations. Uses `team_helpers.py` for role checks.
+- **documents.py**: POST (create), GET (list), GET /{slug}, PATCH (update), DELETE
+  - Supports team documents via `team_shares` join
+  - Compensating transactions: cleanup storage on DB failure
+- **keys.py**: API key management
+  - POST (create, returns raw key once)
+  - GET (list, filter by team)
+  - DELETE (revoke via soft-delete)
+- **revisions.py**: Version history endpoints
+  - GET /shares/{slug}/revisions — list versions
+  - GET /shares/{slug}/revisions/{version_num} — fetch specific version
 
-### app/dashboard/team_invites.py
-Invite management (list, create, revoke, bulk up to 50, resend). Team events and shares listing. Registers routes on the `teams.py` router via side-effect import.
+#### dashboard/ (JWT Auth)
+**Team collaboration and management**.
 
-### app/internal/upload.py
-File upload endpoint. Accepts HTML/MD files up to 50 MB. Rate-limited. Optional JWT for user association. Uses `html-files` bucket. Compensating transactions on DB failure.
+- **teams.py**: Team CRUD, member management, role changes
+- **team_invites.py**: Invite lifecycle (create, list, revoke, bulk, resend), events, shares
+- **invitations.py**: User's received invites (list, accept, decline)
+- **domains.py**: Custom domain CRUD, DNS verification, brand configuration
 
-### app/internal/publish.py
-Editor publish endpoint. Requires JWT. Supports custom slugs (prepends user handle if available). Rate-limited. Uses `html-files` bucket.
+Role hierarchy: `owner (3) > editor (2) > viewer (1)`.
 
-### app/public/shares.py
-Unauthenticated share management. Delete via owner JWT or delete_token. Password set/unlock with rate limiting (fail-closed, 5/10min). Uses bcrypt for password verification.
+#### internal/ (Authenticated)
+**Upload, publish, file operations, and file requests**.
 
-### app/public/search.py
-Full-text search via `search_shares` Postgres RPC. Paginated results with snippet and rank.
+- **upload.py**: File upload (HTML/MD, up to 50 MB), optional JWT, rate-limited
+- **multi_upload.py**: Batch upload, share groups, multi-file uploads
+- **publish.py**: Editor publish (custom slugs, rate-limited), requires JWT
+- **images.py**: Embedded image upload (PNG/JPG/GIF/WebP, 5 MB max)
+- **download.py**: Bulk download (ZIP archives for share groups)
+- **file_requests.py**: Authenticated file request creation and management
+- **cli_upload.py**: CLI-specific upload endpoint
 
-### app/public/analytics.py
-View tracking. Always returns 200. Fail-open rate limiting. Inserts to `share_views` table, increments `view_count` via RPC.
+#### public/ (No Auth Required)
+**Public endpoints for discovery, sharing, viewing, and file uploads**.
 
-### app/public/oembed.py
-oEmbed discovery for share embeds. Rate-limited 60/min/IP.
+- **shares.py**: Delete (owner JWT or token), password set/unlock, burn, download status, content view
+- **search.py**: Full-text search via `search_shares` RPC
+- **analytics.py**: View tracking (always 200, fail-open)
+- **oembed.py**: oEmbed discovery for embeds
+- **qrcode.py**: QR code generation (SVG or PNG)
+- **comments.py**: Add/list comments on shares
+- **versions.py**: Read-only version history (client can choose revision)
+- **encryption.py**: Encryption endpoints (encrypt, re-encrypt, key generation, zero-knowledge)
+- **preview.py**: File preview (images, PDF, code, markdown, video/audio, text, auto-detection)
+- **explore.py**: Gallery feed (trending, tag-filtered, language-tagged)
+- **stars.py**: Star/unstar shares (requires JWT)
+- **profiles.py**: Public user profiles + their shares
+- **languages.py**: Language tagging and detection endpoints
+- **file_requests.py**: Public upload to file request links
 
-## Data Model (Inferred from Code)
+### Services
 
-### Tables
+#### cleanup.py
+Background service runs on app startup. Periodically deletes:
+- Expired shares (`expires_at` < now)
+- Expired file requests
+- Burned shares (download_count >= max_downloads)
+
+Runs hourly by default.
+
+## Data Model
+
+### Core Tables
 
 | Table | Purpose |
 |-------|---------|
-| `shares` | Core content shares (slug, content, storage, views, passwords) |
-| `api_keys` | API key metadata (hashed, prefix, user/team association) |
+| `shares` | Content (slug, title, content, storage path, view count, password, expiry, encryption metadata) |
+| `api_keys` | API key metadata (prefix, hash, user/team, scopes, last_used, expiry) |
 | `teams` | Team definitions (name, slug, plan, owner) |
-| `team_members` | Team membership (user, role, joined_at) |
-| `team_invites` | Pending invitations (email, token, role, expiry) |
-| `team_events` | Team activity log |
+| `team_members` | Team membership (user, role, created_at) |
+| `team_invitations` | Pending invites (email, token, role, status, expiry) |
+| `team_events` | Audit log (event_type, payload, timestamp) |
 | `team_shares` | Share-to-team association |
-| `share_views` | View tracking records |
-| `user_profiles` | User display info (display_name, avatar_url) |
+| `share_views` | View tracking (IP, user agent, country, timestamp) |
+| `share_revisions` | Version snapshots (version_num, content, html, timestamp) |
+| `share_comments` | Comments (author, content, timestamp) |
+| `share_groups` | Multi-file share batches (slug, user_id) |
+| `custom_domains` | Domain records (domain, team_id, status, verification_token) |
+| `file_requests` | Upload request links (slug, creator, expiry) |
 | `profiles` | User profiles (handle, display_name) |
 
 ### Postgres RPCs
@@ -153,16 +249,68 @@ oEmbed discovery for share embeds. Rate-limited 60/min/IP.
 |-----|---------|
 | `check_rate_limit` | Sliding-window rate limiting |
 | `search_shares` | Full-text search with ranking |
-| `create_team_invite` | Upsert invite with uniqueness check |
+| `create_team_invite` | Atomic invite creation |
 | `accept_team_invite` | Accept invite, create membership |
 | `decline_team_invite` | Mark invite as declined |
-| `change_team_member_role` | Update member role with permission checks |
+| `change_team_member_role` | Update role with permission check |
 | `remove_team_member` | Remove member with cleanup |
 | `increment_share_views` | Atomic view count increment |
+| `check_download_limit` | Enforce download count limit |
 
 ### Storage Buckets
 
-| Bucket | Purpose |
-|--------|---------|
-| `html-files` | Upload and publish flow files |
-| `shares` | V1 API document storage |
+| Bucket | Path Pattern | Purpose |
+|--------|------|---------|
+| `html-files` | `shares/{slug}.html` or `shares/{slug}.md` | Upload & publish flows |
+| `shares` | `{user_id}/{slug}` | v1 API document storage |
+| `thumbnails` | `shares/{slug}.jpg` | Generated previews |
+
+## Authentication & Authorization
+
+### Auth Methods
+
+| Method | Header | Usage |
+|--------|--------|-------|
+| JWT | `Authorization: Bearer <jwt>` | Dashboard, upload, publish, images, invites, v1 keys, stars |
+| API Key | `Authorization: Bearer shk_...` or `sht_...` | v1 documents only |
+| Optional JWT | `Authorization: Bearer <jwt>` | Upload (associates with user if present) |
+| None | — | Search, analytics, oEmbed, health, shares (public ops) |
+
+### Role Hierarchy
+
+`owner (3) > editor (2) > viewer (1)` — numeric comparison for permission checks.
+
+## Key Patterns
+
+- **asyncio.to_thread()** — Supabase sync client in async context
+- **Compensating transactions** — Storage cleanup on DB failure
+- **Fail-open/fail-closed** — Configurable RPC failure behavior
+- **Rate limiting via RPC** — Postgres-backed, distributed
+- **Fire-and-forget updates** — `last_used_at` on API key usage
+- **Two storage buckets** — `html-files` (public) vs `shares` (private)
+- **Background cleanup** — Hourly deletion of expired content
+
+## Testing
+
+**Current coverage**: ~8 test files, ~25-30% estimated coverage.
+
+Tests exist for:
+- Encryption (encrypt/decrypt, key derivation)
+- File requests (creation, uploads, cleanup)
+- Custom domains (verification, CNAME checks)
+- Preview (image, PDF, text)
+- One-time downloads (burn-after-read)
+- Endpoint validation
+
+**Missing coverage**: Most route handlers, core modules (security, extract_text, rate_limit), error paths.
+
+## Deployment
+
+- **Platform**: Render (container, auto-scaling)
+- **Language**: Python 3.12+
+- **Framework**: FastAPI + uvicorn
+- **Database**: Supabase Postgres
+- **Storage**: Supabase Storage
+- **Auth**: Firebase (JWT, ID token verification)
+- **Health**: `/health` (liveness) and `/health/deep` (database check)
+- **Config**: `.env` file (Pydantic BaseSettings)
