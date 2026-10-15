@@ -31,8 +31,10 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       minio:
-        # minio/minio was removed from Docker Hub; quay.io is the official registry.
-        image: quay.io/minio/minio:latest
+        # MinIO ended all public distribution (Docker Hub, quay, ghcr, dl.min.io).
+        # bitnamilegacy is the archived Bitnami build — separate pipeline from the
+        # compromised Docker Hub images — pinned to the newest versioned tag.
+        image: bitnamilegacy/minio:2025.7.23-debian-12-r5
         env:
           MINIO_ROOT_USER: dropitx
           MINIO_ROOT_PASSWORD: dropitx_local_dev
@@ -73,7 +75,7 @@ jobs:
 
       - name: Create storage buckets (mirrors compose createbuckets service)
         run: |
-          docker run --rm --network host quay.io/minio/mc:latest sh -c '
+          docker run --rm --network host --entrypoint sh bitnamilegacy/minio-client:latest -c '
             mc alias set local http://localhost:9000 dropitx dropitx_local_dev &&
             mc mb local/html-files --ignore-existing &&
             mc mb local/shares --ignore-existing &&
