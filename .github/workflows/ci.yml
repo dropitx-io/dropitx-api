@@ -1,0 +1,94 @@
+name: CI # deploy.yml's workflow_run trigger matches this exact name
+
+on:
+  push:
+    branches: [main]
+    # Docs-only pushes to main skip CI, and therefore skip the deploy it triggers.
+    # Never path-filter pull_request: the `ci-passed` check must always report.
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+  pull_request:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    # Mirrors `docker compose up -d` from the repo README: Postgres with
+    # infra/init applied on first boot, plus MinIO with the two buckets.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: dropitx
+          POSTGRES_USER: dropitx
+          POSTGRES_PASSWORD: dropitx_local_dev
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dropitx -d dropitx"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      minio:
+        image: minio/minio
+        env:
+          MINIO_ROOT_USER: dropitx
+          MINIO_ROOT_PASSWORD: dropitx_local_dev
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd "curl -sf http://localhost:9000/minio/health/ready"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://dropitx:dropitx_local_dev@localhost:5432/dropitx
+      S3_ENDPOINT: http://localhost:9000
+      S3_ACCESS_KEY: dropitx
+      S3_SECRET_KEY: dropitx_local_dev
+      FIREBASE_PROJECT_ID: dropitx-ci
+      SUPABASE_URL: http://localhost:9000
+      ALLOWED_ORIGINS: http://localhost:3000
+      FRONTEND_URL: http://localhost:3000
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Apply schema (mirrors compose initdb mount)
+        run: |
+          docker run --rm --network host -v "$PWD/infra/init:/init:ro" -e PGPASSWORD=dropitx_local_dev postgres:16-alpine \
+            sh -c 'psql -v ON_ERROR_STOP=1 -h localhost -U dropitx -d dropitx -f /init/01_schema.sql -f /init/02_rpc_functions.sql'
+
+      - name: Create storage buckets (mirrors compose createbuckets service)
+        run: |
+          docker run --rm --network host minio/mc sh -c '
+            mc alias set local http://localhost:9000 dropitx dropitx_local_dev &&
+            mc mb local/html-files --ignore-existing &&
+            mc mb local/shares --ignore-existing &&
+            mc anonymous set download local/html-files &&
+            mc anonymous set download local/shares'
+
+      - name: Test
+        run: python -m pytest -v
+
+  # Single aggregate status check; add every future CI job to `needs`.
+  ci-passed:
+    if: always()
+    needs: [ci]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail unless every CI job succeeded
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped')
+        run: exit 1
+      - run: echo "All CI jobs passed"
