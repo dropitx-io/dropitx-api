@@ -31,7 +31,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
       minio:
-        image: minio/minio
+        # minio/minio was removed from Docker Hub; quay.io is the official registry.
+        image: quay.io/minio/minio:latest
         env:
           MINIO_ROOT_USER: dropitx
           MINIO_ROOT_PASSWORD: dropitx_local_dev
@@ -72,7 +73,7 @@ jobs:
 
       - name: Create storage buckets (mirrors compose createbuckets service)
         run: |
-          docker run --rm --network host minio/mc sh -c '
+          docker run --rm --network host quay.io/minio/mc:latest sh -c '
             mc alias set local http://localhost:9000 dropitx dropitx_local_dev &&
             mc mb local/html-files --ignore-existing &&
             mc mb local/shares --ignore-existing &&
