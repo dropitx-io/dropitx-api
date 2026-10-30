@@ -15,17 +15,18 @@ CLEANUP_INTERVAL = 300  # 5 minutes
 
 
 async def cleanup_expired_file_requests() -> int:
-    """Delete file request uploads for expired requests.
-    
+    """Delete the uploads of expired file requests and deactivate the requests.
+
     The file_requests row itself is kept (for history), but uploaded files
-    in storage are removed to save space.
-    Returns the number of uploads cleaned up.
+    in storage and their file_request_uploads rows are removed to save space.
+    A request whose uploads could not all be removed stays active, so the next
+    run retries it.
+    Returns the number of file requests cleaned up.
     """
     client = get_admin_client()
     now = datetime.now(timezone.utc).isoformat()
-    
+
     try:
-        # Find expired requests that still have uploads
         resp = await asyncio.to_thread(
             lambda: client.table("file_requests")
             .select("id")
@@ -39,26 +40,40 @@ async def cleanup_expired_file_requests() -> int:
     except Exception as exc:
         logger.error("Failed to query expired file requests: %s", exc)
         return 0
-    
-    if not rows:
-        return 0
-    
-    deleted = 0
+
+    cleaned = 0
     for row in rows:
+        rid = row["id"]
         try:
-            # Deactivate the request
+            uploads_resp = await asyncio.to_thread(
+                lambda: client.table("file_request_uploads")
+                .select("storage_path")
+                .eq("file_request_id", rid)
+                .execute(),
+            )
+            paths = [u["storage_path"] for u in uploads_resp.data or []]
+            if paths:
+                await asyncio.to_thread(
+                    lambda: client.storage.from_("html-files").remove(paths),
+                )
+                await asyncio.to_thread(
+                    lambda: client.table("file_request_uploads")
+                    .delete()
+                    .eq("file_request_id", rid)
+                    .execute(),
+                )
             await asyncio.to_thread(
-                lambda rid=row["id"]: client.table("file_requests")
+                lambda: client.table("file_requests")
                 .update({"is_active": False})
                 .eq("id", rid)
                 .execute(),
             )
-            deleted += 1
-            logger.info("Deactivated expired file request %s", row["id"])
+            cleaned += 1
+            logger.info("Cleaned up expired file request %s (%d uploads)", rid, len(paths))
         except Exception as exc:
-            logger.error("Failed to deactivate file request %s: %s", row.get("id"), exc)
-    
-    return deleted
+            logger.error("Failed to clean up expired file request %s: %s", rid, exc)
+
+    return cleaned
 
 
 async def cleanup_expired_shares() -> int:
