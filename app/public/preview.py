@@ -11,11 +11,11 @@ import logging
 import mimetypes
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.public.shares import _check_download_limit, _fetch_share
-from app.dependencies import get_client_ip
+from app.dependencies import User, get_client_ip, get_optional_user
 from core.config import settings
 from core.rate_limit import check_public_read_rate_limit
 from core.supabase import get_admin_client
@@ -278,6 +278,7 @@ async def get_share_preview(
     slug: str,
     request: Request,
     max_lines: int = Query(default=100, ge=10, le=1000, description="Max lines for text previews"),
+    user: User | None = Depends(get_optional_user),
 ):
     """Get preview data for a share without triggering a download.
 
@@ -301,7 +302,7 @@ async def get_share_preview(
             headers={"Retry-After": str(max(rate.reset, 1))},
         )
 
-    row = await _fetch_share(slug)
+    row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
     # Check download limit (but don't increment)
     _check_download_limit(row)

@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
-from app.public._share_auth import authorize_owner
+from app.public._share_auth import authorize_owner, require_share_visible
 from core.rate_limit import check_password_rate_limit, check_public_read_rate_limit
 from core.security import hash_password, verify_password
 from core.supabase import get_admin_client
@@ -68,8 +68,18 @@ class ShareContentResponse(BaseModel):
 # Helpers
 # ---------------------------------------------------------------------------
 
-async def _fetch_share(slug: str) -> dict:
-    """Fetch a share row by slug. Raises 404 if not found, 410 if expired."""
+async def _fetch_share(
+    slug: str,
+    *,
+    viewer: User | None = None,
+    enforce_private: bool = False,
+) -> dict:
+    """Fetch a share row by slug. Raises 404 if not found, 410 if expired.
+
+    With ``enforce_private`` a private share is reported as 404 unless ``viewer``
+    owns it. The check runs before the burned/expired checks so a caller who may
+    not see the share cannot tell it from a missing one by status code.
+    """
     client = get_admin_client()
     resp = await asyncio.to_thread(
         lambda: client.table("shares")
@@ -82,6 +92,9 @@ async def _fetch_share(slug: str) -> dict:
         raise HTTPException(status_code=404, detail="Share not found")
 
     row = rows[0]
+
+    if enforce_private:
+        require_share_visible(row, viewer)
 
     # Check if burned
     if row.get("burned"):
@@ -135,6 +148,7 @@ async def _delete_share_row(row: dict) -> None:
 async def get_share_content(
     slug: str,
     request: Request,
+    user: User | None = Depends(get_optional_user),
 ):
     """View a share's content. Handles:
     - Expiration check (returns 410 if expired)
@@ -152,7 +166,7 @@ async def get_share_content(
             headers={"Retry-After": str(max(rate.reset, 1))},
         )
 
-    row = await _fetch_share(slug)
+    row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
     # Check download limit
     _check_download_limit(row)
@@ -323,10 +337,10 @@ async def set_password(
     user: User | None = Depends(get_optional_user),
 ):
     """Set or clear a share password. Auth: owner OR delete_token."""
-    row = await _fetch_share(slug)
-
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
+
+    row = await _fetch_share(slug)
 
     authorize_owner(row, user, body.delete_token)
 
@@ -356,6 +370,7 @@ async def unlock_share(
     slug: str,
     request: Request,
     body: UnlockRequest,
+    user: User | None = Depends(get_optional_user),
 ):
     """Verify a share password. Rate-limited 5/10min per IP+slug."""
     ip = get_client_ip(request)
@@ -367,7 +382,7 @@ async def unlock_share(
             headers={"Retry-After": str(max(rate.reset, 1))},
         )
 
-    row = await _fetch_share(slug)
+    row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
     # Check download limit
     _check_download_limit(row)
@@ -470,6 +485,7 @@ async def download_share(
     slug: str,
     request: Request,
     password: str | None = None,
+    user: User | None = Depends(get_optional_user),
 ):
     """Download a share's content as a file attachment.
 
@@ -487,7 +503,7 @@ async def download_share(
             headers={"Retry-After": str(max(rate.reset, 1))},
         )
 
-    row = await _fetch_share(slug)
+    row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
     # Check download limit BEFORE serving
     _check_download_limit(row)
