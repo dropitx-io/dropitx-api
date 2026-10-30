@@ -197,25 +197,46 @@ _PARAM_CONVERTERS = {
 }
 
 
-async def _bind(conn, sql: str, params: list | tuple):
-    """Prepare `sql` and convert str params to what their declared type needs."""
-    stmt = await conn.prepare(sql)
+# SQL string -> declared parameter type names. Bounded: IN lists and batch inserts
+# produce many distinct SQL strings.
+_PARAM_TYPES_MAX = 512
+_param_types: dict[str, tuple[str, ...]] = {}
+
+
+async def _declared_types(conn, sql: str) -> tuple[str, ...]:
+    """Parameter type names Postgres reports for `sql`, prepared at most once per SQL.
+
+    Connection.prepare bypasses asyncpg's statement cache, so the actual execution
+    goes through conn.fetch / conn.fetchval, which use it.
+    """
+    types = _param_types.get(sql)
+    if types is None:
+        stmt = await conn.prepare(sql)
+        types = tuple(p.name for p in stmt.get_parameters())
+        if len(_param_types) >= _PARAM_TYPES_MAX:
+            _param_types.pop(next(iter(_param_types)))
+        _param_types[sql] = types
+    return types
+
+
+async def _coerce(conn, sql: str, params: list | tuple) -> list:
+    """Convert str params bound to temporal columns; other values pass through."""
     args = list(params)
-    for i, declared in enumerate(stmt.get_parameters()):
-        convert = _PARAM_CONVERTERS.get(declared.name)
+    if not any(isinstance(a, str) for a in args):
+        return args
+    for i, name in enumerate(await _declared_types(conn, sql)):
+        convert = _PARAM_CONVERTERS.get(name)
         if convert is not None and i < len(args) and isinstance(args[i], str):
             args[i] = convert(args[i])
-    return stmt, args
+    return args
 
 
 async def _fetch(conn, sql: str, params: list | tuple = ()):
-    stmt, args = await _bind(conn, sql, params)
-    return await stmt.fetch(*args)
+    return await conn.fetch(sql, *await _coerce(conn, sql, params))
 
 
 async def _fetchval(conn, sql: str, params: list | tuple = ()):
-    stmt, args = await _bind(conn, sql, params)
-    return await stmt.fetchval(*args)
+    return await conn.fetchval(sql, *await _coerce(conn, sql, params))
 
 
 # ---------------------------------------------------------------------------

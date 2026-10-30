@@ -145,6 +145,45 @@ class TestShimTimestampParams:
         assert row["tz"] is None
 
 
+class TestStatementCache:
+    """Declared param types are memoized per SQL so asyncpg's statement cache applies."""
+
+    @pytest.fixture
+    def prepares(self, monkeypatch):
+        import asyncpg
+
+        calls: list[str] = []
+        real_prepare = asyncpg.Connection.prepare
+
+        async def spy(conn, query, *args, **kwargs):
+            calls.append(query)
+            return await real_prepare(conn, query, *args, **kwargs)
+
+        monkeypatch.setattr(asyncpg.Connection, "prepare", spy)
+        return calls
+
+    def test_repeating_a_query_with_a_str_timestamp_prepares_at_most_once(self, scratch, prepares):
+        db = get_admin_client()
+        db.table(scratch).insert({"tz": INSTANT}).execute()
+
+        db.table(scratch).select("id").lt("tz", "2030-01-02T04:04:05Z").execute()
+        after_first = len(prepares)
+        rows = db.table(scratch).select("id").lt("tz", "2031-01-02T04:04:05Z").execute().data
+
+        assert len(rows) == 1
+        assert len(prepares) == after_first
+
+    def test_query_without_str_params_never_prepares(self, scratch, prepares):
+        db = get_admin_client()
+
+        db.table(scratch).insert({"tz": INSTANT}).execute()
+        db.table(scratch).select("id").eq("id", 1).execute()
+        db.table(scratch).update({"tz": INSTANT}).eq("id", 1).execute()
+        db.table(scratch).delete().eq("id", 1).execute()
+
+        assert prepares == []
+
+
 # ---------------------------------------------------------------------------
 # Endpoints that write ISO strings into shares.expires_at
 # ---------------------------------------------------------------------------
