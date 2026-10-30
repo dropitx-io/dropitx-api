@@ -8,10 +8,11 @@ import logging
 import zipfile
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
-from app.dependencies import get_client_ip
+from app.dependencies import User, get_client_ip, get_optional_user
+from app.public._share_auth import can_view_share
 from core.rate_limit import check_bulk_download_rate_limit
 from core.supabase import get_admin_client
 
@@ -35,8 +36,12 @@ async def _fetch_group(slug: str) -> dict:
     return rows[0]
 
 
-async def _fetch_group_shares(group_slug: str) -> list[dict]:
-    """Fetch all non-expired shares belonging to a group."""
+async def _fetch_group_shares(group_slug: str, user: User | None) -> list[dict]:
+    """Fetch the non-expired shares of a group that `user` may take.
+
+    Private shares need their owner; password-protected shares are left out for
+    everyone but their owner because this endpoint has no way to take a password.
+    """
     client = get_admin_client()
     resp = await asyncio.to_thread(
         lambda: client.table("shares")
@@ -56,6 +61,10 @@ async def _fetch_group_shares(group_slug: str) -> list[dict]:
                 expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
             if now > expires_at:
                 continue
+        if not can_view_share(row, user):
+            continue
+        if row.get("password_hash") and not (user is not None and user.id == row.get("user_id")):
+            continue
         valid.append(row)
     return valid
 
@@ -70,7 +79,11 @@ def _build_zip(files: list[tuple[str, bytes]]) -> bytes:
 
 
 @router.get("/download/group/{slug}", tags=["Download"], summary="Bulk download group as ZIP")
-async def bulk_download_group(slug: str, request: Request):
+async def bulk_download_group(
+    slug: str,
+    request: Request,
+    user: User | None = Depends(get_optional_user),
+):
     """Download all files in a share group as a single ZIP archive.
 
     Streams the ZIP to avoid holding the full archive in memory for large groups.
@@ -89,7 +102,7 @@ async def bulk_download_group(slug: str, request: Request):
     group = await _fetch_group(slug)
 
     # Fetch shares in group
-    shares = await _fetch_group_shares(slug)
+    shares = await _fetch_group_shares(slug, user)
     if not shares:
         raise HTTPException(status_code=404, detail="No files found in this group")
 

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from pydantic import BaseModel
 
 from app.dependencies import User, get_client_ip, get_optional_user
+from app.public._share_auth import require_share_visible
 from core.config import settings
 from core.extract_text import extract_text_from_html, extract_text_from_markdown
 from core.nanoid import generate_delete_token, generate_slug
@@ -74,6 +75,9 @@ async def multi_upload(
         raise HTTPException(status_code=400, detail="No files provided")
     if len(files) > _MAX_FILES:
         raise HTTPException(status_code=400, detail=f"Maximum {_MAX_FILES} files allowed")
+    if is_private and user is None:
+        # A private share is readable by its owner only, so an ownerless one is unreadable.
+        raise HTTPException(status_code=400, detail="Private shares require sign-in")
 
     client = get_admin_client()
     slug = generate_slug()
@@ -211,27 +215,31 @@ async def multi_upload(
     tags=["Upload"],
     summary="List files in a multi-file share",
 )
-async def list_share_files(slug: str):
+async def list_share_files(
+    slug: str,
+    user: User | None = Depends(get_optional_user),
+):
     """List all files attached to a share."""
     client = get_admin_client()
 
     # Get share ID
     share_resp = await asyncio.to_thread(
         lambda: client.table("shares")
-        .select("id")
+        .select("id, is_private, user_id")
         .eq("slug", slug)
         .execute()
     )
     if not share_resp.data:
         raise HTTPException(status_code=404, detail="Share not found")
 
-    share_id = share_resp.data[0]["id"]
+    share = share_resp.data[0]
+    require_share_visible(share, user)
 
-    # Get files
+    # Get files (storage_path is internal and not part of the listing)
     files_resp = await asyncio.to_thread(
         lambda: client.table("share_files")
-        .select("*")
-        .eq("share_id", share_id)
+        .select("id, share_id, filename, mime_type, file_size, sort_order, created_at")
+        .eq("share_id", share["id"])
         .order("sort_order")
         .execute()
     )

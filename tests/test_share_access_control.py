@@ -7,7 +7,9 @@ the share rows, storage objects, team membership and queries are real.
 
 from __future__ import annotations
 
+import io
 import uuid
+import zipfile
 
 import pytest
 from fastapi.testclient import TestClient
@@ -57,6 +59,7 @@ class _Seed:
         self.shares: list[str] = []
         self.teams: list[str] = []
         self.objects: list[str] = []
+        self.groups: list[str] = []
 
     def user(self) -> User:
         uid = f"acl-{uuid.uuid4().hex}"
@@ -101,6 +104,30 @@ class _Seed:
         ).execute()
         return slug
 
+    def adopt(self, slug: str) -> dict:
+        """Track a share created through the API so cleanup removes it."""
+        row = self.db.table("shares").select("*").eq("slug", slug).execute().data[0]
+        self.shares.append(row["id"])
+        if row.get("storage_path"):
+            self.objects.append(row["storage_path"])
+        return row
+
+    def group(self, owner: User) -> str:
+        slug = f"acl-group-{uuid.uuid4().hex[:10]}"
+        self.db.table("share_groups").insert({"slug": slug, "user_id": owner.id}).execute()
+        self.groups.append(slug)
+        return slug
+
+    def file_row(self, share: dict, filename: str) -> dict:
+        return self.db.table("share_files").insert({
+            "share_id": share["id"],
+            "storage_path": f"shares/{share['slug']}-{filename}",
+            "filename": filename,
+            "mime_type": "text/html",
+            "file_size": 5,
+            "sort_order": 0,
+        }).execute().data[0]
+
     def cleanup(self):
         for team_id in self.teams:
             self.db.table("teams").delete().eq("id", team_id).execute()
@@ -108,6 +135,8 @@ class _Seed:
             self.db.table("shares").delete().eq("id", share_id).execute()
         if self.objects:
             self.db.storage.from_("html-files").remove(self.objects)
+        for slug in self.groups:
+            self.db.table("share_groups").delete().eq("slug", slug).execute()
         for uid in self.users:
             self.db.table("auth.users").delete().eq("id", uid).execute()
 
@@ -308,3 +337,218 @@ class TestTeamSharesListing:
 
         assert resp.status_code == 200
         assert resp.json()[0]["shares"]["has_password"] is False
+
+
+def _unique_ip() -> dict:
+    """Own rate-limit bucket per call (CF-Connecting-IP is the trusted header)."""
+    return {"cf-connecting-ip": f"10.{uuid.uuid4().int % 250}.{uuid.uuid4().int % 250}.{uuid.uuid4().int % 250}"}
+
+
+# ---------------------------------------------------------------------------
+# CLI / multi uploads must keep password shares readable by their recipients
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def iso_timestamps(monkeypatch):
+    """The DB shim hands ISO strings to asyncpg, which rejects them for timestamptz
+    columns, so the CLI upload endpoints cannot insert at all. Convert them here so
+    these tests exercise the endpoints' own logic rather than that shim limitation."""
+    from datetime import datetime
+
+    from core.db import QueryBuilder
+
+    real_insert = QueryBuilder.insert
+
+    def insert(self, row_data):
+        if isinstance(row_data, dict) and isinstance(row_data.get("expires_at"), str):
+            row_data = {**row_data, "expires_at": datetime.fromisoformat(row_data["expires_at"])}
+        return real_insert(self, row_data)
+
+    monkeypatch.setattr(QueryBuilder, "insert", insert)
+
+
+class TestUploadsStayReadable:
+    def test_cli_file_upload_with_password_still_unlocks(self, client, seed, iso_timestamps):
+        _act_as(None)
+        up = client.post(
+            "/api/cli/upload",
+            files={"file": ("note.md", b"# cli secret", "text/markdown")},
+            data={"password": "pw-cli"},
+            headers=_unique_ip(),
+        )
+        assert up.status_code == 200, up.text
+        slug = up.json()["slug"]
+        row = seed.adopt(slug)
+
+        gate = client.get(f"/api/shares/{slug}/content")
+        assert gate.status_code == 200
+        assert gate.json()["password_protected"] is True
+        assert gate.json()["content"] == ""
+
+        unlocked = client.post(f"/api/shares/{slug}/unlock", json={"password": "pw-cli"})
+        assert unlocked.status_code == 200
+        assert unlocked.json()["content"] == "# cli secret"
+        assert row["is_private"] is False
+
+    def test_cli_text_upload_with_password_still_unlocks(self, client, seed, iso_timestamps):
+        _act_as(None)
+        up = client.post(
+            "/api/cli/upload/text",
+            data={"content": "cli text secret", "password": "pw-text"},
+            headers=_unique_ip(),
+        )
+        assert up.status_code == 200, up.text
+        slug = up.json()["slug"]
+        row = seed.adopt(slug)
+
+        gate = client.get(f"/api/shares/{slug}/content")
+        assert gate.status_code == 200
+        assert gate.json()["password_protected"] is True
+
+        unlocked = client.post(f"/api/shares/{slug}/unlock", json={"password": "pw-text"})
+        assert unlocked.status_code == 200
+        assert unlocked.json()["content"] == "cli text secret"
+        assert row["is_private"] is False
+
+    def test_anonymous_multi_upload_cannot_be_private(self, client):
+        _act_as(None)
+        resp = client.post(
+            "/api/upload/multi",
+            files=[("files", ("a.html", b"<p>a</p>", "text/html"))],
+            data={"is_private": "true"},
+            headers=_unique_ip(),
+        )
+        assert resp.status_code == 400
+        assert resp.json()["detail"] == "Private shares require sign-in"
+
+    def test_signed_in_private_multi_upload_is_readable_by_owner_only(self, client, seed):
+        owner = seed.user()
+        _act_as(owner)
+        up = client.post(
+            "/api/upload/multi",
+            files=[("files", ("a.html", b"<p>a</p>", "text/html"))],
+            data={"is_private": "true"},
+            headers=_unique_ip(),
+        )
+        assert up.status_code == 200, up.text
+        slug = up.json()["slug"]
+        seed.adopt(slug)
+
+        assert client.get(f"/api/shares/{slug}/content").status_code == 200
+        _act_as(None)
+        assert client.get(f"/api/shares/{slug}/content").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Group ZIP download
+# ---------------------------------------------------------------------------
+
+def _zip_names(resp) -> set[str]:
+    return set(zipfile.ZipFile(io.BytesIO(resp.content)).namelist())
+
+
+class TestGroupZipDownload:
+    def _group(self, seed, owner):
+        from core.security import hash_password
+
+        group = seed.group(owner)
+        shares = {
+            "public": seed.share(owner, is_private=False, group_id=group),
+            "private": seed.share(owner, is_private=True, group_id=group),
+            "password": seed.share(
+                owner, is_private=False, group_id=group, password_hash=hash_password("pw")
+            ),
+        }
+        return group, shares
+
+    def test_anonymous_zip_contains_only_open_shares(self, client, seed):
+        owner = seed.user()
+        group, shares = self._group(seed, owner)
+        _act_as(None)
+
+        resp = client.get(f"/api/download/group/{group}", headers=_unique_ip())
+
+        assert resp.status_code == 200
+        assert _zip_names(resp) == {shares["public"]["filename"]}
+
+    def test_non_owner_zip_contains_only_open_shares(self, client, seed):
+        group, shares = self._group(seed, seed.user())
+        _act_as(seed.user())
+
+        resp = client.get(f"/api/download/group/{group}", headers=_unique_ip())
+
+        assert resp.status_code == 200
+        assert _zip_names(resp) == {shares["public"]["filename"]}
+
+    def test_owner_zip_contains_everything(self, client, seed):
+        owner = seed.user()
+        group, shares = self._group(seed, owner)
+        _act_as(owner)
+
+        resp = client.get(f"/api/download/group/{group}", headers=_unique_ip())
+
+        assert resp.status_code == 200
+        assert _zip_names(resp) == {s["filename"] for s in shares.values()}
+
+    def test_group_with_only_hidden_shares_looks_empty(self, client, seed):
+        owner = seed.user()
+        group = seed.group(owner)
+        seed.share(owner, is_private=True, group_id=group)
+        empty = seed.group(owner)
+        _act_as(None)
+
+        hidden = client.get(f"/api/download/group/{group}", headers=_unique_ip())
+        nothing = client.get(f"/api/download/group/{empty}", headers=_unique_ip())
+
+        assert hidden.status_code == 404
+        assert hidden.json() == nothing.json()
+
+
+# ---------------------------------------------------------------------------
+# Multi-file listing
+# ---------------------------------------------------------------------------
+
+class TestShareFilesListing:
+    def test_anonymous_gets_404_for_private_share_files(self, client, seed, missing_share_body):
+        share = seed.share(seed.user())
+        seed.file_row(share, "a.html")
+        _act_as(None)
+
+        resp = client.get(f"/api/shares/{share['slug']}/files")
+
+        assert resp.status_code == 404
+        assert resp.json() == missing_share_body
+
+    def test_non_owner_gets_404_for_private_share_files(self, client, seed, missing_share_body):
+        share = seed.share(seed.user())
+        seed.file_row(share, "a.html")
+        _act_as(seed.user())
+
+        resp = client.get(f"/api/shares/{share['slug']}/files")
+
+        assert resp.status_code == 404
+        assert resp.json() == missing_share_body
+
+    def test_owner_lists_files_without_storage_paths(self, client, seed):
+        owner = seed.user()
+        share = seed.share(owner)
+        seed.file_row(share, "a.html")
+        _act_as(owner)
+
+        resp = client.get(f"/api/shares/{share['slug']}/files")
+
+        assert resp.status_code == 200
+        files = resp.json()["files"]
+        assert [f["filename"] for f in files] == ["a.html"]
+        assert "storage_path" not in set(_walk_keys(resp.json()))
+
+    def test_public_share_files_are_listed_without_storage_paths(self, client, seed):
+        share = seed.share(seed.user(), is_private=False)
+        seed.file_row(share, "b.html")
+        _act_as(None)
+
+        resp = client.get(f"/api/shares/{share['slug']}/files")
+
+        assert resp.status_code == 200
+        assert [f["filename"] for f in resp.json()["files"]] == ["b.html"]
+        assert "storage_path" not in set(_walk_keys(resp.json()))
