@@ -250,7 +250,8 @@ class QueryBuilder:
         self._table = table
         self._op: str = "select"
         self._columns: str = "*"
-        self._filters: list[tuple[str, str, Any]] = []
+        self._filters: list[tuple[str, str, Any, bool]] = []  # (col, op, val, negated)
+        self._negate_next = False
         self._order_by: tuple[str, str] | None = None
         self._limit_val: int | None = None
         self._offset_val: int | None = None
@@ -279,47 +280,55 @@ class QueryBuilder:
         return self
 
     # --- Filters (PostgREST operators) ---
+    def _add_filter(self, col: str, op: str, val: Any) -> "QueryBuilder":
+        self._filters.append((col, op, val, self._negate_next))
+        self._negate_next = False
+        return self
+
+    @property
+    def not_(self) -> "_NegatedFilters":
+        """Negate the next filter: `.not_.is_("col", None)` -> `col IS NOT NULL`."""
+        return _NegatedFilters(self)
+
     def eq(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, "=", val)); return self
+        return self._add_filter(col, "=", val)
 
     def neq(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, "!=", val)); return self
+        return self._add_filter(col, "!=", val)
 
     def gt(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, ">", val)); return self
+        return self._add_filter(col, ">", val)
 
     def gte(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, ">=", val)); return self
+        return self._add_filter(col, ">=", val)
 
     def lt(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, "<", val)); return self
+        return self._add_filter(col, "<", val)
 
     def lte(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, "<=", val)); return self
+        return self._add_filter(col, "<=", val)
 
     def like(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, "LIKE", val)); return self
+        return self._add_filter(col, "LIKE", val)
 
     def ilike(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, "ILIKE", val)); return self
+        return self._add_filter(col, "ILIKE", val)
 
     def in_(self, col: str, val: list) -> "QueryBuilder":
-        self._filters.append((col, "IN", val)); return self
+        return self._add_filter(col, "IN", val)
 
     def is_(self, col: str, val: Any) -> "QueryBuilder":
         if val is None or (isinstance(val, str) and val.lower() == "null"):
-            self._filters.append((col, "IS NULL", None))
-        elif isinstance(val, str) and val.lower() == "not.null":
-            self._filters.append((col, "IS NOT NULL", None))
-        else:
-            self._filters.append((col, "IS", val))
-        return self
+            return self._add_filter(col, "IS NULL", None)
+        if isinstance(val, str) and val.lower() == "not.null":
+            return self._add_filter(col, "IS NOT NULL", None)
+        return self._add_filter(col, "IS", val)
 
     def contains(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, "@>", val)); return self
+        return self._add_filter(col, "@>", val)
 
     def overlaps(self, col: str, val: Any) -> "QueryBuilder":
-        self._filters.append((col, "&&", val)); return self
+        return self._add_filter(col, "&&", val)
 
     # --- Pagination / ordering ---
     def order(self, col: str, desc: bool = False, foreign_table: str | None = None) -> "QueryBuilder":
@@ -344,25 +353,28 @@ class QueryBuilder:
         parts: list[str] = []
         params: list = []
         idx = param_offset
-        for col, op, val in self._filters:
+        for col, op, val, negated in self._filters:
             idx += 1
-            if op == "IS NULL":
-                parts.append(f"{col} IS NULL")
+            if op in ("IS NULL", "IS NOT NULL"):
                 idx -= 1  # no param consumed
-            elif op == "IS NOT NULL":
-                parts.append(f"{col} IS NOT NULL")
-                idx -= 1  # no param consumed
-            elif op == "IN":
+                if negated:
+                    op = "IS NOT NULL" if op == "IS NULL" else "IS NULL"
+                parts.append(f"{col} {op}")
+                continue
+            if op == "IN":
                 ph = ", ".join(f"${idx + j}" for j in range(len(val)))
-                parts.append(f"{col} IN ({ph})")
+                clause = f"{col} IN ({ph})"
                 params.extend(val)
                 idx += len(val) - 1
             elif op in ("@>", "&&"):
                 params.append(val if isinstance(val, str) else json.dumps(val))
-                parts.append(f"{col} ${idx}")
+                clause = f"{col} {op} ${idx}"
             else:
                 params.append(val)
-                parts.append(f"{col} {op} ${idx}")
+                clause = f"{col} {op} ${idx}"
+            # NOT (...) follows SQL three-valued logic, as PostgREST's not.<op> does:
+            # rows where the column is NULL are not returned by a negated comparison.
+            parts.append(f"NOT ({clause})" if negated else clause)
 
         return " WHERE " + " AND ".join(parts), params
 
@@ -435,27 +447,29 @@ class QueryBuilder:
 
     async def _do_insert(self, conn) -> PostgRESTResponse:
         payload = self._payload
-        if isinstance(payload, list):
-            if not payload:
-                return PostgRESTResponse(data=[])
-            cols = list(payload[0].keys())
-        else:
-            cols = list(payload.keys())
+        rows_in = payload if isinstance(payload, list) else [payload]
+        if not rows_in:
+            return PostgRESTResponse(data=[])
 
-        col_list = ", ".join(cols)
-        if isinstance(payload, list):
-            all_vals = []
-            for row in payload:
-                all_vals.extend(row.get(c) for c in cols)
-            ph = ", ".join(f"${i+1}" for i in range(len(cols) * len(payload)))
-            sql = f"INSERT INTO {self._table} ({col_list}) VALUES ({ph}) RETURNING *"
-            rows = await _fetch(conn, sql, all_vals)
-        else:
-            vals = [payload[c] for c in cols]
-            ph = ", ".join(f"${i+1}" for i in range(len(cols)))
-            sql = f"INSERT INTO {self._table} ({col_list}) VALUES ({ph}) RETURNING *"
-            rows = await _fetch(conn, sql, vals)
+        # Union of keys: first row's order, then keys first seen in later rows.
+        cols = list(dict.fromkeys(key for row in rows_in for key in row))
 
+        # One VALUES group per row. A key a row does not carry takes the column
+        # default (NULL when it has none), as the single-row insert does by omitting it.
+        groups: list[str] = []
+        params: list = []
+        for row in rows_in:
+            slots = []
+            for col in cols:
+                if col in row:
+                    params.append(row[col])
+                    slots.append(f"${len(params)}")
+                else:
+                    slots.append("DEFAULT")
+            groups.append(f"({', '.join(slots)})")
+
+        sql = f"INSERT INTO {self._table} ({', '.join(cols)}) VALUES {', '.join(groups)} RETURNING *"
+        rows = await _fetch(conn, sql, params)
         return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
 
     async def _do_update(self, conn) -> PostgRESTResponse:
@@ -482,6 +496,31 @@ class QueryBuilder:
         sql = f"DELETE FROM {self._table}{where} RETURNING *"
         rows = await _fetch(conn, sql, params)
         return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
+
+
+class _NegatedFilters:
+    """What `QueryBuilder.not_` returns: exposes only the filter methods, each negated."""
+
+    _FILTERS = frozenset({
+        "eq", "neq", "gt", "gte", "lt", "lte", "like", "ilike", "in_", "is_", "contains", "overlaps",
+    })
+
+    def __init__(self, builder: QueryBuilder):
+        self._builder = builder
+
+    def __getattr__(self, name: str):
+        if name not in self._FILTERS:
+            raise AttributeError(f"not_ can only negate filters, not {name!r}")
+        apply = getattr(self._builder, name)
+
+        def negated(*args, **kwargs) -> QueryBuilder:
+            self._builder._negate_next = True
+            try:
+                return apply(*args, **kwargs)
+            finally:
+                self._builder._negate_next = False
+
+        return negated
 
 
 # ---------------------------------------------------------------------------
