@@ -16,9 +16,11 @@ from pydantic import BaseModel
 
 from app.public.shares import _check_download_limit, _fetch_share
 from app.dependencies import User, get_client_ip, get_optional_user
-from core.config import settings
+from core.db import public_object_url
 from core.rate_limit import check_public_read_rate_limit
+from core.share_urls import share_page_url
 from core.supabase import get_admin_client
+from core.thumbnail import thumbnail_key
 
 logger = logging.getLogger(__name__)
 
@@ -182,7 +184,7 @@ class PreviewResponse(BaseModel):
     mime_type: str
     file_size: int | None = None
     preview_type: PreviewType
-    content_url: str  # Direct URL to the file in storage
+    content_url: str  # Share page URL (empty when the share is password-protected)
     content: str | None = None  # For text/code/markdown: preview content
     language: str | None = None  # For code: detected language
     lines_total: int | None = None  # For text: total line count
@@ -247,21 +249,11 @@ def _classify_preview(mime_type: str, filename: str) -> tuple[PreviewType, str |
     return ("unsupported", None)
 
 
-def _build_storage_url(storage_path: str, bucket: str) -> str:
-    """Build public URL for a file in Supabase Storage."""
-    return f"{settings.supabase_url}/storage/v1/object/public/{bucket}/{storage_path}"
-
-
 def _build_thumbnail_url(storage_path: str) -> str | None:
     """Build public URL for a thumbnail if it exists."""
-    # Thumbnails are stored at thumbnails/{original_path_without_extension}_thumb.jpg
-    # e.g., shares/abc123.png -> thumbnails/shares/abc123_thumb.jpg
-    # But simpler: thumbnails/{slug}_thumb.jpg
-    parts = storage_path.rsplit(".", 1)
-    if len(parts) == 1:
+    if "." not in storage_path:
         return None
-    base = parts[0]
-    return f"{settings.supabase_url}/storage/v1/object/public/html-files/thumbnails/{base}_thumb.jpg"
+    return public_object_url("html-files", thumbnail_key(storage_path))
 
 
 # ---------------------------------------------------------------------------
@@ -282,12 +274,12 @@ async def get_share_preview(
 ):
     """Get preview data for a share without triggering a download.
 
-    Returns structured preview info:
-    - **image**: content_url points to the image; thumbnail_url if available
-    - **pdf**: content_url points to the PDF for client-side viewer
+    Returns structured preview info (content_url is the share page URL, never a storage URL):
+    - **image**: thumbnail_url if available
+    - **pdf**: client-side viewer
     - **code**: content contains syntax-highlightable source; language detected
     - **markdown**: content contains raw markdown for client-side rendering
-    - **video/audio**: content_url points to the media file for inline player
+    - **video/audio**: inline player
     - **text**: content contains first N lines of the file
     - **unsupported**: file type cannot be previewed
 
@@ -334,7 +326,7 @@ async def get_share_preview(
     preview_type, language = _classify_preview(mime_type, filename)
 
     # Build URLs
-    content_url = _build_storage_url(storage_path, bucket)
+    content_url = share_page_url(row["slug"])
     thumbnail_url = _build_thumbnail_url(storage_path)
 
     # For text-based previews, fetch and return content

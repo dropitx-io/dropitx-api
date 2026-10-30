@@ -106,7 +106,7 @@ async def oembed(
     height = min(maxheight, 600) if maxheight else 600
 
     # Build the iframe embed HTML
-    base_url = settings.supabase_url.replace("/api", "").rstrip("/")
+    base_url = settings.frontend_url.rstrip("/")
     embed_url = f"{base_url}/embed/{slug}"
     html = (
         f'<iframe src="{embed_url}" '

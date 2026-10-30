@@ -1,7 +1,7 @@
 """Thumbnail generation for uploaded images.
 
-Generates a small thumbnail (max 200x200) and stores it in Supabase Storage
-at `thumbnails/{storage_base}_thumb.jpg` under the `html-files` bucket.
+Generates a small thumbnail (max 200x200) and stores it in object storage
+at `public/thumbnails/{storage_base}_thumb.jpg` under the `html-files` bucket.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ import asyncio
 import io
 import logging
 
+from core.db import PUBLIC_PREFIX, public_object_url
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -22,6 +23,31 @@ _THUMB_IMAGE_TYPES: set[str] = {
 
 _THUMB_MAX_SIZE = (200, 200)  # max width, height in pixels
 _THUMB_QUALITY = 80  # JPEG quality
+
+
+def thumbnail_key(storage_path: str) -> str:
+    """Key of the public thumbnail for an object.
+
+    shares/abc123.png -> public/thumbnails/shares/abc123_thumb.jpg
+    """
+    base = storage_path.rsplit(".", 1)[0] if "." in storage_path else storage_path
+    return f"{PUBLIC_PREFIX}thumbnails/{base}_thumb.jpg"
+
+
+async def remove_thumbnail(storage_path: str) -> None:
+    """Delete the public thumbnail of an object. Missing thumbnails are not an error.
+
+    A public thumbnail may exist only while its share is unprotected, unlimited
+    and live, so every transition out of that state calls this.
+    """
+    try:
+        await asyncio.to_thread(
+            lambda: get_admin_client().storage.from_("html-files").remove(
+                [thumbnail_key(storage_path)]
+            ),
+        )
+    except Exception:
+        logger.warning("Failed to remove thumbnail for %s", storage_path, exc_info=True)
 
 
 async def maybe_generate_thumbnail(
@@ -56,12 +82,9 @@ async def maybe_generate_thumbnail(
         if thumb_bytes is None:
             return None
 
-        # Build thumbnail storage path
-        # shares/abc123.png -> thumbnails/shares/abc123_thumb.jpg
-        base = storage_path.rsplit(".", 1)[0] if "." in storage_path else storage_path
-        thumb_path = f"thumbnails/{base}_thumb.jpg"
+        thumb_path = thumbnail_key(storage_path)
 
-        # Upload thumbnail to Supabase Storage
+        # Upload thumbnail to storage
         client = get_admin_client()
         await asyncio.to_thread(
             lambda: client.storage.from_("html-files").upload(
@@ -71,10 +94,8 @@ async def maybe_generate_thumbnail(
             ),
         )
 
-        from core.config import settings
-        thumb_url = f"{settings.supabase_url}/storage/v1/object/public/html-files/{thumb_path}"
         logger.info("Thumbnail generated: %s", thumb_path)
-        return thumb_url
+        return public_object_url("html-files", thumb_path)
 
     except Exception as exc:
         logger.warning("Thumbnail generation failed for %s: %s", storage_path, exc)

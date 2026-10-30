@@ -6,6 +6,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from core.supabase import get_admin_client
+from core.thumbnail import remove_thumbnail
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,6 @@ async def cleanup_expired_shares() -> int:
         resp = await asyncio.to_thread(
             lambda: client.table("shares")
             .select("*")
-            .not_.is_("expires_at", "null")
             .lt("expires_at", now)
             .limit(100)
             .execute(),
@@ -94,6 +94,7 @@ async def cleanup_expired_shares() -> int:
 
             # Remove from storage
             if storage_path:
+                await remove_thumbnail(storage_path)
                 try:
                     await asyncio.to_thread(
                         lambda sp=storage_path, b=bucket: client.storage.from_(b).remove([sp]),

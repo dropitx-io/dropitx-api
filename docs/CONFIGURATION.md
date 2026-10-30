@@ -11,7 +11,7 @@ All runtime configuration for the DropItX API is supplied via environment variab
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `FIREBASE_PROJECT_ID` | **Yes** | — | Firebase project ID, used to verify the `aud`/`iss` claims of incoming ID tokens against Google's certs. |
-| `SUPABASE_URL` | **Yes** | — | Legacy: used only to build public storage object URLs (upload/publish/images/preview/thumbnail/oembed). Not used for auth — Firebase handles auth (see `FIREBASE_PROJECT_ID`). |
+| `STORAGE_PUBLIC_URL` | No | `http://localhost:9000` | Browser-facing base URL of the object store. Public asset URLs (editor images, thumbnails) are `{STORAGE_PUBLIC_URL}/{bucket}/{key}`; only keys under `html-files/public/` are anonymously readable. |
 | `SUPABASE_ANON_KEY` | **Yes** | — | Supabase anon/public key. Used by the base client (`core/supabase.py`) for user-context and anonymous calls where Row-Level Security applies. |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Yes** | — | Supabase service-role key. Bypasses RLS. Used by `get_admin_client()` for internal/admin operations. Keep secret. |
 | `ALLOWED_ORIGINS` | No | `http://localhost:3000` | Comma-separated CORS origins (e.g. `http://localhost:3000,https://yourdomain.com`). The literal `*` disables credentials and allows all origins. |

@@ -11,11 +11,11 @@ from pydantic import BaseModel
 
 from app.dependencies import User, get_client_ip, get_optional_user
 from app.public._share_auth import require_share_visible
-from core.config import settings
 from core.extract_text import extract_text_from_html, extract_text_from_markdown
 from core.nanoid import generate_delete_token, generate_slug
 from core.rate_limit import check_upload_rate_limit
 from core.security import hash_password
+from core.share_urls import share_page_url
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -141,7 +141,7 @@ async def multi_upload(
 
         # Insert share row (backward-compatible: first file's data in main row)
         first_file = file_records[0]
-        share_url = f"{settings.supabase_url}/storage/v1/object/public/html-files/{first_file['storage_path']}"
+        share_url = share_page_url(slug)
 
         await asyncio.to_thread(
             lambda: client.table("shares").insert(
