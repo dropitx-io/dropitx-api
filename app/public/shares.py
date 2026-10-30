@@ -16,6 +16,7 @@ from app.public._share_auth import authorize_owner, require_share_visible
 from core.rate_limit import check_password_rate_limit, check_public_read_rate_limit
 from core.security import hash_password, verify_password
 from core.supabase import get_admin_client
+from core.thumbnail import remove_thumbnail
 
 logger = logging.getLogger(__name__)
 
@@ -122,6 +123,7 @@ async def _delete_share_row(row: dict) -> None:
     client = get_admin_client()
     storage_path = row.get("storage_path")
     if storage_path:
+        await remove_thumbnail(storage_path)
         # Determine bucket from source
         source = row.get("source", "")
         bucket = "html-files" if source in ("upload", "editor") else "shares"
@@ -351,6 +353,8 @@ async def set_password(
         password_hash = None
 
     client = get_admin_client()
+    if password_hash and row.get("storage_path"):
+        await remove_thumbnail(row["storage_path"])
     await asyncio.to_thread(
         lambda: client.table("shares")
         .update({"password_hash": password_hash})
@@ -464,6 +468,8 @@ async def burn_share(
 
     # Mark as burned
     client = get_admin_client()
+    if row.get("storage_path"):
+        await remove_thumbnail(row["storage_path"])
     await asyncio.to_thread(
         lambda: client.table("shares")
         .update({"burned": True})

@@ -34,6 +34,22 @@ def thumbnail_key(storage_path: str) -> str:
     return f"{PUBLIC_PREFIX}thumbnails/{base}_thumb.jpg"
 
 
+async def remove_thumbnail(storage_path: str) -> None:
+    """Delete the public thumbnail of an object. Missing thumbnails are not an error.
+
+    A public thumbnail may exist only while its share is unprotected, unlimited
+    and live, so every transition out of that state calls this.
+    """
+    try:
+        await asyncio.to_thread(
+            lambda: get_admin_client().storage.from_("html-files").remove(
+                [thumbnail_key(storage_path)]
+            ),
+        )
+    except Exception:
+        logger.warning("Failed to remove thumbnail for %s", storage_path, exc_info=True)
+
+
 async def maybe_generate_thumbnail(
     content_bytes: bytes,
     mime_type: str,

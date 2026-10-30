@@ -313,7 +313,7 @@ async def upload(
 
     # Generate thumbnail for images (fire-and-forget). A thumbnail is a public
     # asset, so none is made for content that is gated or ephemeral.
-    if not (password or encrypted or burn_after_reading or one_time_download):
+    if not (password or encrypted or burn_after_reading or one_time_download or max_downloads is not None):
         from core.thumbnail import maybe_generate_thumbnail
         asyncio.create_task(maybe_generate_thumbnail(content_bytes, content_type, storage_path))
 
@@ -469,8 +469,8 @@ async def upload_batch(
             raise HTTPException(status_code=500, detail=f"Failed to save {file.filename}") from exc
 
         # Generate thumbnail for images (fire-and-forget); thumbnails are public
-        # assets, so none is made for password-protected content.
-        if not password:
+        # assets, so none is made for password-protected or download-limited content.
+        if not (password or max_downloads is not None):
             from core.thumbnail import maybe_generate_thumbnail
             asyncio.create_task(maybe_generate_thumbnail(content_bytes, content_type, storage_path))
 

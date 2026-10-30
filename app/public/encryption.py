@@ -31,6 +31,7 @@ from core.encryption import (
 )
 from core.rate_limit import check_password_rate_limit, check_public_read_rate_limit
 from core.supabase import get_admin_client
+from core.thumbnail import remove_thumbnail
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +224,7 @@ async def encrypt_share(
 
     # Update share metadata
     from core.security import hash_password
+    await remove_thumbnail(storage_path)
     update_data = {
         "encrypted": True,
         "encryption_iv": result.iv,
@@ -329,6 +331,7 @@ async def reencrypt_share(slug: str, request: Request, body: ReencryptShareReque
 
     # Update metadata
     from core.security import hash_password
+    await remove_thumbnail(storage_path)
     update_data = {
         "encryption_iv": result.iv,
         "encryption_salt": result.salt,

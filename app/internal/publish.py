@@ -319,6 +319,11 @@ async def update_publish(
         logger.error("Storage upload failed for update slug=%s: %s", slug, exc)
         raise HTTPException(status_code=500, detail="Failed to upload content") from exc
 
+    # A public thumbnail may exist only for an unprotected, unlimited share.
+    if body.encrypted or body.max_downloads is not None:
+        from core.thumbnail import remove_thumbnail
+        await remove_thumbnail(storage_path)
+
     # Build update data
     plain_text = extract_text_from_html(body.content)
     update_data: dict = {

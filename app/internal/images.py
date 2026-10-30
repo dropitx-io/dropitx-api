@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 
 from fastapi import APIRouter, Depends, UploadFile
 from fastapi.exceptions import HTTPException
@@ -58,9 +59,12 @@ async def upload_image(
     if len(content_bytes) == 0:
         raise HTTPException(status_code=400, detail="Image is empty.")
 
-    # Build storage path: uploads/{userId}/{filename}
+    # The key is unguessable: a public URL must not be derivable from a user id
+    # (exposed by the explore feed) and a predictable filename.
     filename = file.filename or f"image{_EXT_MAP[content_type]}"
-    storage_path = f"{PUBLIC_PREFIX}uploads/{user.id}/{filename}"
+    storage_path = (
+        f"{PUBLIC_PREFIX}uploads/{user.id}/{secrets.token_urlsafe(16)}{_EXT_MAP[content_type]}"
+    )
 
     # Upload to Supabase Storage
     client = get_admin_client()

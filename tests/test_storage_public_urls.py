@@ -104,9 +104,10 @@ class TestImageUpload:
             files={"file": ("pic.png", _png_bytes(), "image/png")},
         )
         assert resp.status_code == 200, resp.text
-        key = f"public/uploads/{owner.id}/pic.png"
-        objects.append(key)
         body = resp.json()
+        key = body["url"].split("/html-files/", 1)[1]
+        objects.append(key)
+        assert key.startswith(f"public/uploads/{owner.id}/") and key.endswith(".png")
         assert body["url"] == public_object_url("html-files", key)
         assert "storage/v1/object" not in body["url"]
         assert _anonymous_get(body["url"]).status_code == 200
@@ -249,3 +250,169 @@ class TestOEmbed:
         embed = f"{settings.frontend_url.rstrip('/')}/embed/{slug}"
         assert f'src="{embed}"' in resp.json()["html"]
         assert resp.json()["provider_url"] == settings.frontend_url.rstrip("/")
+
+
+def _seed_image_share(owner: User, objects: list[str], **overrides) -> dict:
+    """An image share whose public thumbnail already exists in storage."""
+    from core.thumbnail import maybe_generate_thumbnail, thumbnail_key
+
+    db = get_admin_client()
+    slug = f"thm-{uuid.uuid4().hex[:12]}"
+    path = f"shares/{slug}.png"
+    png = _png_bytes()
+    db.storage.from_("html-files").upload(path, png, file_options={"content-type": "image/png"})
+    row = {
+        "slug": slug,
+        "title": "thumb fixture",
+        "filename": f"{slug}.png",
+        "storage_path": path,
+        "mime_type": "image/png",
+        "source": "upload",
+        "user_id": owner.id,
+        "is_private": False,
+        "delete_token": f"tok-{uuid.uuid4().hex}",
+    }
+    row.update(overrides)
+    created = db.table("shares").insert(row).execute().data[0]
+    url = asyncio.run(maybe_generate_thumbnail(png, "image/png", path))
+    objects.extend([path, thumbnail_key(path)])
+    assert _anonymous_get(url).status_code == 200, "fixture thumbnail must start public"
+    return {**created, "thumb_url": url}
+
+
+def _thumbnail_gone(share: dict) -> bool:
+    return _anonymous_get(share["thumb_url"]).status_code in (403, 404)
+
+
+class TestThumbnailFollowsShareProtection:
+    def test_set_password_removes_the_public_thumbnail(self, client, owner, objects):
+        share = _seed_image_share(owner, objects)
+        resp = client.post(f"/api/shares/{share['slug']}/set-password", json={"password": "hunter22"})
+        assert resp.status_code == 200, resp.text
+        assert _thumbnail_gone(share)
+
+    def test_clearing_a_password_does_not_touch_the_thumbnail_state(self, client, owner, objects):
+        share = _seed_image_share(owner, objects)
+        resp = client.post(f"/api/shares/{share['slug']}/set-password", json={"password": None})
+        assert resp.status_code == 200, resp.text
+        assert _anonymous_get(share["thumb_url"]).status_code == 200
+
+    def test_encrypt_removes_the_public_thumbnail(self, client, owner, objects):
+        share = _seed_image_share(owner, objects)
+        resp = client.post(f"/api/shares/{share['slug']}/encrypt", json={"password": "hunter22"})
+        assert resp.status_code == 200, resp.text
+        assert _thumbnail_gone(share)
+
+    def test_reencrypt_removes_a_thumbnail_that_is_still_public(self, client, owner, objects):
+        share = _seed_image_share(owner, objects)
+        client.post(f"/api/shares/{share['slug']}/encrypt", json={"password": "hunter22"})
+        # Re-publish the thumbnail as a stale leftover, then re-encrypt.
+        from core.thumbnail import maybe_generate_thumbnail
+        asyncio.run(maybe_generate_thumbnail(_png_bytes(), "image/png", share["storage_path"]))
+        resp = client.post(
+            f"/api/shares/{share['slug']}/reencrypt",
+            json={"old_password": "hunter22", "new_password": "other-pass"},
+        )
+        assert resp.status_code == 200, resp.text
+        assert _thumbnail_gone(share)
+
+    @pytest.mark.parametrize(
+        "extra", [{"encrypted": True, "encryption_iv": "iv", "encryption_salt": "salt"}, {"max_downloads": 2}],
+        ids=["encrypted", "max_downloads"],
+    )
+    def test_republish_that_adds_protection_removes_the_public_thumbnail(
+        self, client, owner, objects, extra
+    ):
+        share = _seed_image_share(owner, objects)
+        resp = client.put(f"/api/publish/{share['slug']}", json={"content": "<p>x</p>", **extra})
+        assert resp.status_code == 200, resp.text
+        assert _thumbnail_gone(share)
+
+    def test_delete_removes_the_public_thumbnail(self, client, owner, objects):
+        share = _seed_image_share(owner, objects)
+        resp = client.request("DELETE", f"/api/shares/{share['slug']}", json={})
+        assert resp.status_code == 200, resp.text
+        assert _thumbnail_gone(share)
+
+    def test_burn_removes_the_public_thumbnail(self, client, owner, objects):
+        share = _seed_image_share(owner, objects)
+        resp = client.post(f"/api/shares/{share['slug']}/burn", json={})
+        assert resp.status_code == 200, resp.text
+        assert _thumbnail_gone(share)
+
+    def test_expiry_cleanup_removes_the_public_thumbnail(self, owner, objects):
+        from core.thumbnail import maybe_generate_thumbnail  # noqa: F401
+        from app.services.cleanup import cleanup_expired_shares
+
+        share = _seed_image_share(owner, objects, expires_at="2000-01-01T00:00:00+00:00")
+        assert asyncio.run(cleanup_expired_shares()) >= 1
+        assert _thumbnail_gone(share)
+
+    def test_removing_a_thumbnail_that_does_not_exist_is_a_no_op(self):
+        from core.thumbnail import remove_thumbnail
+
+        asyncio.run(remove_thumbnail(f"shares/never-had-one-{uuid.uuid4().hex}.png"))
+
+    @pytest.mark.parametrize(
+        "params, data",
+        [
+            ({"burn_after_reading": "true"}, {}),
+            ({"one_time_download": "true"}, {}),
+            ({}, {"max_downloads": "3"}),
+            ({}, {"password": "hunter22"}),
+        ],
+        ids=["burn_after_reading", "one_time_download", "max_downloads", "password"],
+    )
+    def test_every_gating_flag_skips_thumbnail_creation(
+        self, client, owner, objects, params, data
+    ):
+        with patch("core.thumbnail.maybe_generate_thumbnail", new=AsyncMock()) as gen:
+            resp = client.post(
+                "/api/upload",
+                files={"file": ("p.png", _png_bytes(), "image/png")},
+                params=params,
+                data=data,
+            )
+            assert resp.status_code == 200, resp.text
+            objects.append(_share_row(resp.json()["slug"])["storage_path"])
+            gen.assert_not_called()
+
+    def test_batch_upload_with_max_downloads_skips_thumbnail_creation(self, client, owner, objects):
+        with patch("core.thumbnail.maybe_generate_thumbnail", new=AsyncMock()) as gen:
+            resp = client.post(
+                "/api/upload/batch",
+                files=[("files", ("p.png", _png_bytes(), "image/png"))],
+                data={"max_downloads": "3"},
+            )
+            assert resp.status_code == 200, resp.text
+            for f in resp.json()["files"]:
+                objects.append(_share_row(f["slug"])["storage_path"])
+            gen.assert_not_called()
+
+
+class TestEditorImageKeys:
+    def _upload(self, client, name: str) -> str:
+        resp = client.post(
+            "/api/images/upload", files={"file": (name, _png_bytes(), "image/png")}
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["url"]
+
+    def test_key_is_random_and_never_contains_the_uploaded_filename(self, client, owner, objects):
+        first = self._upload(client, "quarterly-report.png")
+        second = self._upload(client, "quarterly-report.png")
+        for url in (first, second):
+            objects.append(url.split("/html-files/", 1)[1])
+        assert first != second
+        for url in (first, second):
+            assert "quarterly-report" not in url
+            key = url.split("/html-files/", 1)[1]
+            assert key.startswith(f"public/uploads/{owner.id}/")
+            assert key.endswith(".png")
+            assert _anonymous_get(url).status_code == 200
+
+    def test_extension_comes_from_the_content_type_not_the_filename(self, client, owner, objects):
+        url = self._upload(client, "../evil.html")
+        objects.append(url.split("/html-files/", 1)[1])
+        assert url.endswith(".png")
+        assert "evil" not in url
