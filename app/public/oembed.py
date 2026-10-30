@@ -93,7 +93,7 @@ async def oembed(
             profile_resp = await asyncio.to_thread(
                 lambda: client.table("user_profiles")
                 .select("display_name")
-                .eq("id", share["user_id"])
+                .eq("user_id", share["user_id"])
                 .execute()
             )
             if profile_resp.data:
