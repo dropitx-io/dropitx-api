@@ -28,6 +28,7 @@ BEGIN
         s.view_count, s.download_count, s.created_at, s.user_id
     FROM shares s
     WHERE s.is_private = false
+      AND s.password_hash IS NULL
       AND s.burned = false
       AND (s.expires_at IS NULL OR s.expires_at > now())
       AND (
