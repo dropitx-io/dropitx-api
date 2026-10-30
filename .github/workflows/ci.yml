@@ -97,8 +97,7 @@ jobs:
             --deselect tests/test_custom_domains.py::TestDomainRoutesExist::test_brand_patch_endpoint_exists \
             --deselect tests/test_public_api_validation.py::TestShareComments::test_422_without_fields \
             --deselect tests/test_public_api_validation.py::TestShareComments::test_422_missing_author_name \
-            --deselect tests/test_public_api_validation.py::TestShareComments::test_422_empty_fields \
-            --deselect tests/test_public_api_validation.py::TestSetPassword::test_401_without_auth_and_no_delete_token
+            --deselect tests/test_public_api_validation.py::TestShareComments::test_422_empty_fields
 
   # Single aggregate status check; add every future CI job to `needs`.
   ci-passed:

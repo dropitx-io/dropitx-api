@@ -233,6 +233,15 @@ async def list_events(
     return resp.data or []
 
 
+# password_hash is read only to derive has_password and is removed before returning.
+_TEAM_SHARE_COLUMNS = (
+    "id, slug, title, filename, mime_type, file_size, language, source, tags, "
+    "view_count, download_count, max_downloads, created_at, updated_at, expires_at, "
+    "is_private, user_id, burn_after_reading, burned, one_time_download, encrypted, "
+    "password_hash"
+)
+
+
 @router.get("/teams/{slug}/shares", tags=["Team Events & Shares"])
 async def list_shares(
     slug: str,
@@ -249,10 +258,28 @@ async def list_shares(
     client = get_admin_client()
     resp = await asyncio.to_thread(
         lambda: client.table("team_shares")
-        .select("*, shares(*)")
+        .select("*")
         .eq("team_id", team["id"])
         .order("created_at", desc=True)
         .range(offset, offset + limit - 1)
         .execute()
     )
-    return resp.data or []
+    team_shares = resp.data or []
+    if not team_shares:
+        return []
+
+    # Explicit column list: shares also holds password_hash, delete_token and
+    # the share body, none of which a team member may receive.
+    share_ids = list({row["share_id"] for row in team_shares if row.get("share_id")})
+    shares_resp = await asyncio.to_thread(
+        lambda: client.table("shares")
+        .select(_TEAM_SHARE_COLUMNS)
+        .in_("id", share_ids)
+        .execute()
+    )
+    shares_by_id = {}
+    for share in shares_resp.data or []:
+        share["has_password"] = bool(share.pop("password_hash", None))
+        shares_by_id[share["id"]] = share
+
+    return [{**row, "shares": shares_by_id.get(row.get("share_id"))} for row in team_shares]
