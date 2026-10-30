@@ -19,7 +19,7 @@ RETURNS TABLE (
     view_count INTEGER,
     download_count INTEGER,
     created_at TIMESTAMPTZ,
-    user_id UUID
+    user_id TEXT
 ) AS $$
 BEGIN
     RETURN QUERY
@@ -56,7 +56,7 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION change_team_member_role(
     p_team_id UUID,
-    p_user_id UUID,
+    p_user_id TEXT,
     p_new_role TEXT
 ) RETURNS void AS $$
 BEGIN
@@ -68,7 +68,7 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION remove_team_member(
     p_team_id UUID,
-    p_user_id UUID
+    p_user_id TEXT
 ) RETURNS void AS $$
 BEGIN
     DELETE FROM team_members WHERE team_id = p_team_id AND user_id = p_user_id;
@@ -77,7 +77,7 @@ $$ LANGUAGE plpgsql;
 
 CREATE OR REPLACE FUNCTION accept_team_invite(
     p_token TEXT,
-    p_user_id UUID
+    p_user_id TEXT
 ) RETURNS TABLE(team_id UUID, team_name TEXT) AS $$
 DECLARE
     v_invite RECORD;
@@ -112,7 +112,7 @@ CREATE OR REPLACE FUNCTION create_team_invite(
     p_team_id UUID,
     p_email TEXT,
     p_role TEXT,
-    p_invited_by UUID,
+    p_invited_by TEXT,
     p_token TEXT
 ) RETURNS TABLE(id UUID, team_id UUID, email TEXT, role TEXT, token TEXT) AS $$
 DECLARE
@@ -140,3 +140,38 @@ ALTER TABLE team_members ADD CONSTRAINT team_members_role_check
 -- api_keys: add team_id for team-scoped keys
 ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS team_id uuid REFERENCES teams(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_api_keys_team_id ON api_keys(team_id);
+
+-- =========================================================================
+-- provision_firebase_user — idempotent upsert of auth.users + user_profiles
+-- Called by GET /api/auth/session on every FE load. ON CONFLICT keeps it
+-- race-free for concurrent first calls; profile fields are never clobbered.
+-- =========================================================================
+CREATE OR REPLACE FUNCTION provision_firebase_user(p_uid TEXT, p_email TEXT)
+RETURNS TABLE (
+    user_id TEXT,
+    username TEXT,
+    display_name TEXT,
+    bio TEXT,
+    avatar_url TEXT,
+    is_public BOOLEAN,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+) AS $$
+BEGIN
+    INSERT INTO auth.users (id, email)
+    VALUES (p_uid, p_email)
+    ON CONFLICT (id) DO UPDATE
+      SET email = COALESCE(EXCLUDED.email, auth.users.email);
+
+    INSERT INTO user_profiles (user_id)
+    VALUES (p_uid)
+    ON CONFLICT ON CONSTRAINT user_profiles_user_id_key DO NOTHING;
+
+    RETURN QUERY
+    SELECT user_profiles.user_id, user_profiles.username, user_profiles.display_name,
+           user_profiles.bio, user_profiles.avatar_url, user_profiles.is_public,
+           user_profiles.created_at, user_profiles.updated_at
+    FROM user_profiles
+    WHERE user_profiles.user_id = p_uid;
+END;
+$$ LANGUAGE plpgsql;

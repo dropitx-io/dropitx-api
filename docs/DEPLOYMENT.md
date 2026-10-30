@@ -2,7 +2,7 @@
 
 # Deployment
 
-DropItX API is a FastAPI service deployed to **Render** from the [`render.yaml`](../render.yaml) blueprint. It has no local database or filesystem state of its own — all data, files, and auth live in a Supabase project (Postgres + Storage + JWT). A deploy is healthy only when the Render web service boots **and** its Supabase dependencies are reachable.
+DropItX API is a FastAPI service deployed to **Render** from the [`render.yaml`](../render.yaml) blueprint. It has no local database or filesystem state of its own — all data and files live in a Supabase project (Postgres + Storage); Firebase provides ID-token-based auth separately. A deploy is healthy only when the Render web service boots **and** its Supabase dependencies are reachable.
 
 This document is the canonical deployment reference. The older [`docs/deployment-guide.md`](deployment-guide.md) overlaps but is superseded here for blueprint-driven deploys. For environment variables, see [`docs/CONFIGURATION.md`](CONFIGURATION.md).
 
@@ -62,7 +62,7 @@ The Render service is stateless. Before the first deploy, the configured Supabas
 2. Apply migrations. The repo ships two migration sets:
    - [`supabase/migrations/`](../supabase/migrations/) — the canonical, Supabase-CLI-ordered set (base schema, competitor features, file requests, schema fixes). Apply with `supabase db push` after `supabase link --project-ref <project-ref>`.
    - [`migrations/`](../migrations/) — feature-specific SQL files (encryption columns, share files, comments, revisions, custom domains, explore gallery, download-count RPC). If running manually, apply these against the same database.
-3. Note the project's **JWKS URL**: `https://<project>.supabase.co/auth/v1/.well-known/jwks.json`. JWT verification in [`core/security.py`](../core/security.py) fetches and caches this for 10 minutes (`_JWKS_TTL = 600`).
+3. For auth, create a Firebase project and note its **Project ID** from the Firebase console — set it as `FIREBASE_PROJECT_ID`. JWT verification in [`core/security.py`](../core/security.py) fetches and caches Google's public x509 signing certs for 1 hour (`_CERTS_TTL = 3600`).
 
 ### Storage buckets
 

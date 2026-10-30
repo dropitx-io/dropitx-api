@@ -2,7 +2,8 @@
 
 Re-exports get_admin_client/get_anon_client/get_user_client from core.db.
 The original supabase-py client is replaced by our PostgREST compat shim.
-Supabase Auth (JWT verification) still goes through cloud Supabase URL.
+JWT verification now goes through Firebase (core/security.py); SUPABASE_URL,
+if still set, is used only for legacy storage-URL construction.
 """
 
 from core.db import get_admin_client, get_anon_client, get_user_client

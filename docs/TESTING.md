@@ -2,7 +2,7 @@
 
 # Testing
 
-The DropItX API test suite is a pytest suite in [`tests/`](../tests/) that exercises the FastAPI app and its core logic **without ever hitting a live Supabase backend**. Supabase clients, configuration, and auth dependencies are mocked so the suite runs offline and fast.
+The DropItX API test suite is a pytest suite in [`tests/`](../tests/) that exercises the FastAPI app and its core logic **without ever hitting a live backend**. The DB/storage client (`get_admin_client` / `get_user_client` / `get_anon_client` from [`core/supabase.py`](../core/supabase.py) — a PostgREST-compatible shim, not an actual Supabase backend), configuration, and Firebase JWT verification are mocked so the suite runs offline and fast.
 
 ## Test framework and setup
 
@@ -32,7 +32,7 @@ There is **no `conftest.py`** at the project level. Each test file defines its o
 pip install -e ".[dev]"
 ```
 
-This installs the package in editable mode plus the `dev` extra (pytest, pytest-asyncio). Because `core.config.settings` is mocked in the tests (see [Mocking strategy](#mocking-strategy-for-supabase)), no real `.env` file is required to run the suite.
+This installs the package in editable mode plus the `dev` extra (pytest, pytest-asyncio). Because `core.config.settings` is mocked in the tests (see [Mocking strategy](#mocking-strategy-for-the-dbstorage-client-and-firebase-auth)), no real `.env` file is required to run the suite.
 
 ## Running tests
 
@@ -100,9 +100,9 @@ def client():
 
 **2. Pure unit tests** (used by `test_encryption.py`) — for pure functions with no I/O, import the module directly and assert on outputs. `test_encryption.py` imports from [`core/encryption.py`](../core/encryption.py) and needs no mocks.
 
-### Mocking strategy for Supabase
+### Mocking strategy for the DB/storage client and Firebase auth
 
-No test makes a real Supabase call. Three layers are stubbed:
+No test makes a real DB/storage call or a real Firebase network call — both are mocked at their respective call sites. Three layers are stubbed:
 
 **a. Mock the Supabase client.** Patch `get_admin_client` / `get_user_client` / `get_anon_client` (defined in [`core/supabase.py`](../core/supabase.py)) at the call site, then chain `MagicMock` to mimic the query builder:
 

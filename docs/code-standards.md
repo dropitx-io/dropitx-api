@@ -122,7 +122,7 @@ Use Postgres RPCs for complex operations that need atomicity or are expensive in
 ## Security Standards
 
 ### Authentication
-- JWT: Verified against Supabase JWKS (RS256, audience = Supabase URL)
+- JWT: Verified against Firebase's x509 certs (RS256, audience = FIREBASE_PROJECT_ID)
 - API keys: SHA-256 hashed in DB, never stored in plaintext
 - Passwords: bcrypt with 12 rounds
 

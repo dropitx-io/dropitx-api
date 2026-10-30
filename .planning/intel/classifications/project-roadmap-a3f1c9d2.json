@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/project-roadmap.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Project Roadmap",
+  "summary": "Tracks shipped feature phases (foundation, sharing, auth, teams, content, discovery) and current alpha status for the DropItX API.",
+  "scope": ["file sharing", "team collaboration", "authentication", "API keys", "encryption", "search", "analytics"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

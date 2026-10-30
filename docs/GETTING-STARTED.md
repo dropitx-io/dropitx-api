@@ -2,7 +2,7 @@
 
 # Getting Started
 
-This guide takes you from a fresh clone to a running DropItX API server making its first API call. The DropItX API is a FastAPI backend (Python 3.12+) that uses Supabase for auth, Postgres data, and file storage.
+This guide takes you from a fresh clone to a running DropItX API server making its first API call. The DropItX API is a FastAPI backend (Python 3.12+) that uses Firebase for auth, Postgres data, and file storage.
 
 ## Prerequisites
 

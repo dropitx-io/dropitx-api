@@ -10,7 +10,8 @@ All runtime configuration for the DropItX API is supplied via environment variab
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SUPABASE_URL` | **Yes** | — | Supabase project URL (e.g. `https://<project>.supabase.co`). Used for Postgres, Storage public URLs, and the JWKS endpoint (`<SUPABASE_URL>/auth/v1/.well-known/jwks.json`). |
+| `FIREBASE_PROJECT_ID` | **Yes** | — | Firebase project ID, used to verify the `aud`/`iss` claims of incoming ID tokens against Google's certs. |
+| `SUPABASE_URL` | **Yes** | — | Legacy: used only to build public storage object URLs (upload/publish/images/preview/thumbnail/oembed). Not used for auth — Firebase handles auth (see `FIREBASE_PROJECT_ID`). |
 | `SUPABASE_ANON_KEY` | **Yes** | — | Supabase anon/public key. Used by the base client (`core/supabase.py`) for user-context and anonymous calls where Row-Level Security applies. |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Yes** | — | Supabase service-role key. Bypasses RLS. Used by `get_admin_client()` for internal/admin operations. Keep secret. |
 | `ALLOWED_ORIGINS` | No | `http://localhost:3000` | Comma-separated CORS origins (e.g. `http://localhost:3000,https://yourdomain.com`). The literal `*` disables credentials and allows all origins. |
@@ -116,7 +117,7 @@ Configured by [`core/logging_config.py`](../core/logging_config.py) at import ti
 - `get_admin_client()` — new client created with `SUPABASE_SERVICE_ROLE_KEY`; bypasses RLS. Used by most routes and by the rate limiter.
 - `get_anon_client()` — the cached base client (anon key, no user context) for public endpoints.
 
-JWT verification (`core/security.py::verify_supabase_jwt`) fetches and caches the JWKS from `<SUPABASE_URL>/auth/v1/.well-known/jwks.json` for 10 minutes (`_JWKS_TTL = 600`) and supports both `RS256` and `ES256` algorithms. No env var controls this — it is derived from `SUPABASE_URL`.
+JWT verification (`core/security.py::verify_firebase_jwt`) fetches and caches Google's x509 signing certs (Firebase ID token verification) for the TTL defined by `_CERTS_TTL` (1 hour), refetching once on a `kid` miss to survive key rotation. It is controlled by `FIREBASE_PROJECT_ID` (verified as the token's `aud`/`iss`), not by `SUPABASE_URL`.
 
 ## Rate limiting
 

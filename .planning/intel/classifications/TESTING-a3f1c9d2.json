@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/TESTING.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Testing",
+  "summary": "Guide describing the pytest test suite setup, mocking strategy, and conventions for writing new tests in DropItX API.",
+  "scope": ["pytest", "test suite", "tests/ directory", "Supabase mocking", "test conventions"],
+  "cross_refs": ["../tests/", "../pyproject.toml"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

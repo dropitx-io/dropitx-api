@@ -12,7 +12,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
-from core.rate_limit import check_password_rate_limit
+from app.public._share_auth import authorize_owner
+from core.rate_limit import check_password_rate_limit, check_public_read_rate_limit
 from core.security import hash_password, verify_password
 from core.supabase import get_admin_client
 
@@ -126,15 +127,6 @@ async def _delete_share_row(row: dict) -> None:
         logger.warning("Failed to delete share row %s", row["id"], exc_info=True)
 
 
-def _authorize_owner(row: dict, user: User | None, delete_token: str | None) -> None:
-    """Verify the caller is the share owner or has the delete token."""
-    if delete_token and row.get("delete_token") == delete_token:
-        return
-    if user and user.id == row.get("user_id"):
-        return
-    raise HTTPException(status_code=403, detail="Not authorized to modify this share")
-
-
 # ---------------------------------------------------------------------------
 # GET /shares/{slug}/content — view share content (burn-after-reading aware)
 # ---------------------------------------------------------------------------
@@ -151,6 +143,15 @@ async def get_share_content(
     - E2E encryption metadata passthrough
     - Download limit enforcement
     """
+    ip = get_client_ip(request)
+    rate = check_public_read_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     row = await _fetch_share(slug)
 
     # Check download limit
@@ -305,7 +306,7 @@ async def delete_share(
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    _authorize_owner(row, user, body.delete_token)
+    authorize_owner(row, user, body.delete_token)
     await _delete_share_row(row)
 
     return {"detail": "Share deleted"}
@@ -327,7 +328,7 @@ async def set_password(
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    _authorize_owner(row, user, body.delete_token)
+    authorize_owner(row, user, body.delete_token)
 
     # null or empty string clears the password
     if body.password:
@@ -444,7 +445,7 @@ async def burn_share(
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    _authorize_owner(row, user, body.delete_token)
+    authorize_owner(row, user, body.delete_token)
 
     # Mark as burned
     client = get_admin_client()
@@ -477,6 +478,15 @@ async def download_share(
     - Handles burn-after-reading (burns after download)
     - Supports ?password= query param for password-protected shares
     """
+    ip = get_client_ip(request)
+    rate = check_public_read_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     row = await _fetch_share(slug)
 
     # Check download limit BEFORE serving
@@ -549,7 +559,7 @@ async def download_share(
 # ---------------------------------------------------------------------------
 
 @router.get("/shares/{slug}/download-status", tags=["Shares"], summary="Check download status")
-async def get_download_status(slug: str):
+async def get_download_status(slug: str, request: Request):
     """Check if a share is available for download.
 
     Returns status info including:
@@ -561,6 +571,15 @@ async def get_download_status(slug: str):
     - burn_after_reading: whether the file burns after reading
     - expired: whether the file has expired
     """
+    ip = get_client_ip(request)
+    rate = check_public_read_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     client = get_admin_client()
     try:
         resp = await asyncio.to_thread(

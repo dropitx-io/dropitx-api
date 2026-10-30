@@ -5,7 +5,7 @@ Day-to-day workflow for working on the DropItX API (FastAPI, Python ≥ 3.12). T
 
 ## Local setup
 
-The API is a stateless FastAPI process over Supabase. To run it locally you need Python 3.12+ and a Supabase project (Auth + Postgres + Storage) to point at.
+The API is a stateless FastAPI process. To run it locally you need Python 3.12+, a Firebase project (its ID in `FIREBASE_PROJECT_ID`, used for ID-token auth), and local Postgres + MinIO for data/storage (`docker compose up -d`) — no Supabase project is needed for local dev.
 
 1. Clone and enter the repo:
    ```bash
@@ -183,7 +183,7 @@ The Supabase Python client is **synchronous**. Every route handler is `async def
 await asyncio.to_thread(lambda: client.table("shares").insert(data).execute())
 ```
 
-Always wrap the call in a `lambda` so the Postgrest builder executes inside the thread, not at call time. The same convention applies to JWT verification (`get_current_user` calls `await asyncio.to_thread(verify_supabase_jwt, token)`) and rate-limit checks.
+Always wrap the call in a `lambda` so the Postgrest builder executes inside the thread, not at call time. The same convention applies to JWT verification (`get_current_user` calls `await asyncio.to_thread(verify_firebase_jwt, token)`) and rate-limit checks.
 
 For non-critical side effects (e.g. updating `api_keys.last_used_at`, bumping a view counter), use fire-and-forget tasks and swallow/log failures so they never break the request:
 
@@ -212,7 +212,7 @@ Conventions when adding logs:
 
 - **Wrong log format locally?** Leaving `ENV` unset defaults to `production`, which produces JSON lines in the terminal. Set `ENV=development` and `LOG_LEVEL=DEBUG` in `.env` for readable, verbose output.
 - **App fails to boot?** `Settings` validation runs at import — a missing `SUPABASE_URL`, `SUPABASE_ANON_KEY`, or `SUPABASE_SERVICE_ROLE_KEY` raises `ValidationError` before Uvicorn starts. Re-check `.env`.
-- **401 on every authenticated request?** JWTs are verified against the Supabase JWKS cached for 10 minutes in `core/security.py`; an invalid `SUPABASE_URL` or a stale/rotated JWKS will fail verification at `debug` level (enable `LOG_LEVEL=DEBUG` to see the reason).
+- **401 on every authenticated request?** Firebase ID tokens are verified against Google's x509 certs cached in `core/security.py`; an invalid or missing `FIREBASE_PROJECT_ID` or a stale/rotated cert will fail verification at `debug` level (enable `LOG_LEVEL=DEBUG` to see the reason).
 - **Need to inspect a request end-to-end?** Every response carries `x-request-id`; grep the JSON logs for that ID to see the full structured request line (method, path, status, duration, client IP).
 - **Endpoint not appearing in `/docs`?** Confirm the new router is `include_router`'d in its surface's `router.py` (and that the surface router is mounted in `app/main.py`), and that the tag is listed in `_tags_metadata` if you want it grouped.
 - **Slow Supabase calls blocking the event loop?** Any blocking call not wrapped in `asyncio.to_thread` will stall all concurrent requests — the bridge convention above is mandatory, not optional.

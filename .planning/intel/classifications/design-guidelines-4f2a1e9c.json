@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/design-guidelines.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Design Guidelines",
+  "summary": "API design, naming, security, storage, and dependency conventions for the DropItX backend.",
+  "scope": ["API design", "REST conventions", "naming conventions", "security guidelines", "rate limiting", "storage design", "dependencies"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

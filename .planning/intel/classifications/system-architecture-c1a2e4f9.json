@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/system-architecture.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "System Architecture",
+  "summary": "Describes DropItX API's high-level architecture, route groups, and Supabase-backed data/storage/auth layers.",
+  "scope": ["FastAPI", "route groups", "v1 API key auth", "dashboard JWT auth", "internal routes", "public routes", "Supabase Postgres", "Supabase Storage", "Supabase Auth", "background cleanup"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

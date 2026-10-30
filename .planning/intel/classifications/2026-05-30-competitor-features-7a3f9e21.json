@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/plans/2026-05-30-competitor-features.md",
+  "type": "DOC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "DropItX — Competitor Feature Gap Implementation Plan",
+  "summary": "Task-by-task backend and frontend implementation plan to close feature gaps with WeTransfer, SendAnywhere and similar competitors.",
+  "scope": ["multi-file upload", "general file type support", "download limits", "custom expiration", "QR codes", "bulk zip download", "comments", "version history", "backend", "frontend"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": "Task-list execution plan with concrete file paths and schema/endpoint detail, not a single architectural decision (no Context/Decision/Consequences), not user-story/acceptance-criteria PRD, and not a formal API/schema SPEC document. Classified as DOC (planning/roadmap artifact); some task descriptions carry SPEC-like implementation detail but no dominant SPEC structure (no endpoint contract tables, no formal schemas)."
+}

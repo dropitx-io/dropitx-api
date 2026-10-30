@@ -8,9 +8,11 @@ import logging
 import zipfile
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from app.dependencies import get_client_ip
+from core.rate_limit import check_bulk_download_rate_limit
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -68,11 +70,21 @@ def _build_zip(files: list[tuple[str, bytes]]) -> bytes:
 
 
 @router.get("/download/group/{slug}", tags=["Download"], summary="Bulk download group as ZIP")
-async def bulk_download_group(slug: str):
+async def bulk_download_group(slug: str, request: Request):
     """Download all files in a share group as a single ZIP archive.
 
     Streams the ZIP to avoid holding the full archive in memory for large groups.
+    Rate-limited 10/min per IP (fail-open), checked before any storage fetch.
     """
+    ip = get_client_ip(request)
+    rate = check_bulk_download_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     # Verify group exists
     group = await _fetch_group(slug)
 

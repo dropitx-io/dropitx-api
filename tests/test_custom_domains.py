@@ -2,6 +2,7 @@
 
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
+from fastapi.testclient import TestClient
 from app.main import app
 
 
@@ -195,3 +196,21 @@ class TestDomainHelpers:
     def test_expected_cname_target(self):
         from app.dashboard.domains import EXPECTED_CNAME_TARGET
         assert EXPECTED_CNAME_TARGET == "dropitx.com"
+
+
+# ---------------------------------------------------------------------------
+# Public resolution endpoint
+# ---------------------------------------------------------------------------
+
+class TestResolveCustomDomain:
+    @patch("app.dashboard.domains.get_admin_client")
+    def test_resolve_custom_domain_not_configured(self, mock_get_client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.table.return_value.select.return_value.eq.return_value.eq.return_value.execute.return_value = MagicMock(data=[])
+
+        client = TestClient(app)
+        resp = client.get("/api/dashboard/domains/resolve/some-domain.com")
+
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Domain not configured"

@@ -8,10 +8,11 @@ import secrets
 import dns.resolver
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from app.dependencies import User, get_current_user
+from app.dependencies import User, get_current_user, get_client_ip
 from app.dashboard.team_helpers import require_team_member, resolve_team_by_slug
+from core.rate_limit import check_domain_resolve_rate_limit
 from core.supabase import get_admin_client
 from models.domain import AddDomainInput, UpdateDomainBrandInput, DomainVerificationStatus
 
@@ -350,12 +351,24 @@ async def update_domain_brand(
 # ---------------------------------------------------------------------------
 
 @router.get("/domains/resolve/{domain}", tags=["Custom Domains"], include_in_schema=False)
-async def resolve_custom_domain(domain: str):
+async def resolve_custom_domain(domain: str, request: Request):
     """Internal endpoint to resolve a custom domain to its team configuration.
 
     Used by reverse proxy to route requests to the correct team.
     Not exposed in public API docs.
+    Rate-limited 60/min per IP (fail-open) — this endpoint is designed for
+    internal reverse-proxy use only but is now reachable from the public
+    internet via the Cloudflare Tunnel.
     """
+    ip = get_client_ip(request)
+    rate = check_domain_resolve_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     client = get_admin_client()
     resp = await asyncio.to_thread(
         lambda: client.table("custom_domains")

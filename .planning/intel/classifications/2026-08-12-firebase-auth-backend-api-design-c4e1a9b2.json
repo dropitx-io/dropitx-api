@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/2026-08-12-firebase-auth-backend-api-design.md",
+  "type": "SPEC",
+  "confidence": "medium",
+  "manifest_override": false,
+  "title": "Firebase Auth — Backend Auth-API Design",
+  "summary": "Technical design for backend Firebase auth: TEXT-keyed identity model, schema migration, and GET /api/auth/session provisioning endpoint.",
+  "scope": ["Firebase auth", "user provisioning", "identity model", "schema migration", "/api/auth/session", "get_current_user"],
+  "cross_refs": ["docs/2026-08-12-firebase-google-login-implementation.md"],
+  "locked": false,
+  "precedence": null,
+  "notes": "Status is 'Design (awaiting spec sign-off)', not Accepted, so not a locked ADR. Contains an ADR-like '## Decisions (locked during brainstorming)' section plus goals/non-goals (PRD-like), but dominant content is API contract (endpoint, request/response schema), data model, and schema migration mechanics -> classified SPEC. ADR/PRD signals noted but did not override due to precedence rule (SPEC content stronger and more extensive than the decisions list)."
+}

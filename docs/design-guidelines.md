@@ -77,7 +77,7 @@ Include `Retry-After` header with Unix timestamp of reset.
 
 ### Authentication
 - Always verify auth before accessing data — never trust client-side checks
-- JWT verification uses JWKS (not shared secret), audience set to Supabase URL
+- JWT verification uses Firebase's rotating x509 certs (not shared secret), audience set to FIREBASE_PROJECT_ID
 - API keys returned raw only once on creation; store only SHA-256 hash
 - Tokens generated with `secrets` module (cryptographically secure)
 
@@ -134,11 +134,11 @@ When storing requires both a file upload and DB insert:
 ### Minimize External Dependencies
 - Text extraction uses regex, not BeautifulSoup or lxml (reduces cold start time)
 - JWT verification uses python-jose (lightweight), not PyJWT
-- HTTP client: httpx (only for JWKS fetch, not for general HTTP)
+- HTTP client: httpx (only for Firebase cert fetch, not for general HTTP)
 - No ORM: direct Supabase client queries
 
 ### No State in API
-- No in-memory caches (except JWKS, 10-min TTL)
+- No in-memory caches (except the Firebase cert cache, 1hr TTL)
 - No sessions or server-side state
 - All data externalized to Supabase
 - Deployable on stateless serverless platforms

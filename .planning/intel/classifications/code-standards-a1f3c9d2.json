@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/code-standards.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Code Standards",
+  "summary": "Style and convention guide for file naming, Python conventions, imports, module organization, and FastAPI patterns.",
+  "scope": ["file naming", "Python conventions", "import order", "module organization", "FastAPI patterns", "routes"],
+  "cross_refs": [],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}

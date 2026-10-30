@@ -12,10 +12,11 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app.dependencies import User, get_current_user
+from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
+from app.public._share_auth import authorize_owner
 from core.encryption import (
     _b64decode,
     _b64encode,
@@ -28,6 +29,7 @@ from core.encryption import (
     generate_iv,
     generate_salt,
 )
+from core.rate_limit import check_password_rate_limit, check_public_read_rate_limit
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -96,15 +98,6 @@ async def _fetch_share_for_encrypt(slug: str) -> dict:
     return rows[0]
 
 
-def _authorize_owner(row: dict, user: User | None, delete_token: str | None) -> None:
-    """Verify the caller is the share owner or has the delete token."""
-    if delete_token and row.get("delete_token") == delete_token:
-        return
-    if user and user.id == row.get("user_id"):
-        return
-    raise HTTPException(status_code=403, detail="Not authorized to modify this share")
-
-
 # ---------------------------------------------------------------------------
 # POST /encryption/generate-key — generate key bundle for client
 # ---------------------------------------------------------------------------
@@ -133,11 +126,20 @@ async def generate_key_endpoint():
     tags=["Encryption"],
     summary="Get share encryption info",
 )
-async def get_encryption_info(slug: str):
+async def get_encryption_info(slug: str, request: Request):
     """Return encryption metadata for a share (IV, salt, password status).
 
     Does NOT return any keys — zero-knowledge model.
     """
+    ip = get_client_ip(request)
+    rate = check_public_read_rate_limit(ip)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     row = await _fetch_share_for_encrypt(slug)
     return EncryptionInfoResponse(
         encrypted=row.get("encrypted", False),
@@ -157,7 +159,11 @@ async def get_encryption_info(slug: str):
     summary="Encrypt share with password",
     response_model=EncryptResponse,
 )
-async def encrypt_share(slug: str, body: EncryptShareRequest):
+async def encrypt_share(
+    slug: str,
+    body: EncryptShareRequest,
+    user: User | None = Depends(get_optional_user),
+):
     """Encrypt an existing unencrypted share with a password.
 
     Flow:
@@ -171,6 +177,11 @@ async def encrypt_share(slug: str, body: EncryptShareRequest):
     Returns the share URL — caller should append the encryption key fragment.
     """
     row = await _fetch_share_for_encrypt(slug)
+
+    if user is None and not body.delete_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    authorize_owner(row, user, body.delete_token)
 
     if row.get("encrypted"):
         raise HTTPException(
@@ -250,12 +261,21 @@ async def encrypt_share(slug: str, body: EncryptShareRequest):
     summary="Re-encrypt share with new password",
     response_model=EncryptResponse,
 )
-async def reencrypt_share(slug: str, body: ReencryptShareRequest):
+async def reencrypt_share(slug: str, request: Request, body: ReencryptShareRequest):
     """Re-encrypt an encrypted share with a new password.
 
     Decrypts with old password, re-encrypts with new password.
     Useful for password rotation or adding double protection.
     """
+    ip = get_client_ip(request)
+    rate = check_password_rate_limit(ip, slug)
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Too many attempts. Try again later.",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
     row = await _fetch_share_for_encrypt(slug)
 
     if not row.get("encrypted"):

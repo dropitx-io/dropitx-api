@@ -71,6 +71,8 @@ API KEY REQUIRED:
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -209,6 +211,11 @@ class TestPublicEndpoints:
         resp = await client.get(f"/api/shares/{FAKE_SLUG}/files")
         assert resp.status_code in (404, 500)
 
+    @pytest.mark.asyncio
+    async def test_public_profile_not_found(self, client):
+        resp = await client.get(f"/api/u/{FAKE_SLUG}")
+        assert resp.status_code in (404, 500)
+
 
 # ---------------------------------------------------------------------------
 # 3. Optional auth endpoints
@@ -251,6 +258,43 @@ class TestOptionalAuthEndpoints:
     async def test_burn_share_no_auth(self, client):
         resp = await client.post(f"/api/shares/{FAKE_SLUG}/burn")
         assert resp.status_code in (401, 404, 500)
+
+    @pytest.mark.asyncio
+    @patch("app.public.encryption.get_admin_client")
+    async def test_encrypt_share_no_auth(self, mock_get_client, client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = (
+            MagicMock(data=[])
+        )
+
+        resp = await client.post(f"/api/shares/{FAKE_SLUG}/encrypt", json={
+            "password": "test123",
+        })
+        assert resp.status_code in (401, 404, 500)
+
+    @pytest.mark.asyncio
+    @patch("app.public.encryption.get_admin_client")
+    async def test_encrypt_share_empty_delete_token(self, mock_get_client, client):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = (
+            MagicMock(data=[])
+        )
+
+        resp = await client.post(f"/api/shares/{FAKE_SLUG}/encrypt", json={
+            "password": "test123",
+            "delete_token": "",
+        })
+        assert resp.status_code in (401, 404, 500)
+
+    @pytest.mark.asyncio
+    async def test_reencrypt_share_no_auth_or_rate_limited(self, client):
+        resp = await client.post(f"/api/shares/{FAKE_SLUG}/reencrypt", json={
+            "old_password": "test123",
+            "new_password": "test456",
+        })
+        assert resp.status_code in (404, 500, 429)
 
 
 # ---------------------------------------------------------------------------

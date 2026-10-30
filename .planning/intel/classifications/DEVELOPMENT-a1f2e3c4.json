@@ -1,0 +1,13 @@
+{
+  "source_path": "/Users/ddphuong/Projects/next-labs/dropitx/dropitx-api/docs/DEVELOPMENT.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "Development",
+  "summary": "Day-to-day developer workflow guide covering local setup, running the dev server, commands, and testing for the DropItX API.",
+  "scope": ["local setup", "dev server", "Uvicorn", "commands", "testing", "Supabase", "pytest"],
+  "cross_refs": ["./code-standards.md", "./ARCHITECTURE.md", "./CONFIGURATION.md", "./CONFIGURATION.md#required-supabase-resources"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
