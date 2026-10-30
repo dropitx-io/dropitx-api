@@ -9,9 +9,8 @@ from app.dependencies import User, get_current_user
 
 
 MOCK_SETTINGS = {
+    "firebase_project_id": "test-project",
     "supabase_url": "https://test.supabase.co",
-    "supabase_anon_key": "test-anon-key",
-    "supabase_service_role_key": "test-service-key",
     "allowed_origins": "*",
     "frontend_url": "https://dropitx.com",
 }
