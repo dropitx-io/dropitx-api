@@ -348,27 +348,8 @@ def _unique_ip() -> dict:
 # CLI / multi uploads must keep password shares readable by their recipients
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def iso_timestamps(monkeypatch):
-    """The DB shim hands ISO strings to asyncpg, which rejects them for timestamptz
-    columns, so the CLI upload endpoints cannot insert at all. Convert them here so
-    these tests exercise the endpoints' own logic rather than that shim limitation."""
-    from datetime import datetime
-
-    from core.db import QueryBuilder
-
-    real_insert = QueryBuilder.insert
-
-    def insert(self, row_data):
-        if isinstance(row_data, dict) and isinstance(row_data.get("expires_at"), str):
-            row_data = {**row_data, "expires_at": datetime.fromisoformat(row_data["expires_at"])}
-        return real_insert(self, row_data)
-
-    monkeypatch.setattr(QueryBuilder, "insert", insert)
-
-
 class TestUploadsStayReadable:
-    def test_cli_file_upload_with_password_still_unlocks(self, client, seed, iso_timestamps):
+    def test_cli_file_upload_with_password_still_unlocks(self, client, seed):
         _act_as(None)
         up = client.post(
             "/api/cli/upload",
@@ -390,7 +371,7 @@ class TestUploadsStayReadable:
         assert unlocked.json()["content"] == "# cli secret"
         assert row["is_private"] is False
 
-    def test_cli_text_upload_with_password_still_unlocks(self, client, seed, iso_timestamps):
+    def test_cli_text_upload_with_password_still_unlocks(self, client, seed):
         _act_as(None)
         up = client.post(
             "/api/cli/upload/text",

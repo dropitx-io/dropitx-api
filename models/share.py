@@ -99,8 +99,8 @@ class SearchResult(BaseModel):
     created_at: datetime
     view_count: int
     expires_at: datetime | None = None
-    snippet: str
-    rank: float
+    snippet: str = ""
+    rank: float = 0.0
 
 
 # ---------------------------------------------------------------------------
