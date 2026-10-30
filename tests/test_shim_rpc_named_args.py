@@ -45,3 +45,7 @@ def test_no_params_calls_with_empty_argument_list():
     resp = get_admin_client().rpc("now", {}).execute()
 
     assert len(resp.data) == 1
+
+
+def test_float_results_stay_numbers():
+    assert get_admin_client().rpc("pi", {}).execute().data == [{"pi": 3.141592653589793}]

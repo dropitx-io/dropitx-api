@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import threading
+import uuid
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -109,7 +110,7 @@ def _serialize_row(row) -> dict:
     for key, val in dict(row).items():
         if hasattr(val, "isoformat"):
             out[key] = val.isoformat()
-        elif hasattr(val, "hex") and not isinstance(val, (str, bytes)):
+        elif isinstance(val, uuid.UUID):
             out[key] = str(val)
         elif isinstance(val, list):
             out[key] = list(val)
