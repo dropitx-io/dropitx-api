@@ -82,7 +82,7 @@ Migrations must define the following RPCs, called from Python via the Supabase a
 - `check_rate_limit` — used by [`core/rate_limit.py`](../core/rate_limit.py) for all rate-limit checks.
 - `search_shares` — used by search endpoints.
 - `create_team_invite`, `accept_team_invite`, `decline_team_invite`, `change_team_member_role`, `remove_team_member` — used by team/invite flows in `app/dashboard/`.
-- `increment_share_views` — used by share view tracking.
+- `record_share_view` — used by share view tracking (`POST /api/analytics/track`); the analytics read functions live beside it in `infra/init/03_analytics.sql`.
 
 If `check_rate_limit` or `search_shares` is missing, requests depending on them will fail.
 

@@ -137,7 +137,7 @@ To change a limit, edit `core/rate_limit.py` (no env override exists).
 The following must exist in the configured Supabase project for the API to function (not env vars — part of project configuration, documented in [`README.md`](../README.md) and `CLAUDE.md`):
 
 - **Storage buckets:** `html-files` (upload/publish flows), `shares` (v1 API documents).
-- **Postgres RPCs:** `check_rate_limit`, `search_shares`, `create_team_invite`, `accept_team_invite`, `decline_team_invite`, `change_team_member_role`, `remove_team_member`, `increment_share_views`.
+- **Postgres RPCs:** `check_rate_limit`, `search_shares`, `create_team_invite`, `accept_team_invite`, `decline_team_invite`, `change_team_member_role`, `remove_team_member`, `record_share_view`.
 
 <!-- VERIFY: bucket names, RPC names, and any RLS policy details live in the Supabase project (see supabase/ migrations), not in env vars. Confirm against the deployed Supabase project dashboard. -->
 

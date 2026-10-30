@@ -254,7 +254,7 @@ Runs hourly by default.
 | `decline_team_invite` | Mark invite as declined |
 | `change_team_member_role` | Update role with permission check |
 | `remove_team_member` | Remove member with cleanup |
-| `increment_share_views` | Atomic view count increment |
+| `record_share_view` | Record one share view (no view_count change) |
 | `check_download_limit` | Enforce download count limit |
 
 ### Storage Buckets
