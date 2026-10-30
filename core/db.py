@@ -538,10 +538,12 @@ class RPCBuilder:
     async def _run(self) -> PostgRESTResponse:
         pool = await _get_pool()
         async with pool.acquire() as conn:
+            # Named notation, as PostgREST binds: dict order is irrelevant and
+            # omitted parameters take their SQL defaults.
             keys = list(self._params.keys())
-            placeholders = ", ".join(f"${i+1}" for i in range(len(keys)))
+            args = ", ".join(f"{k} => ${i+1}" for i, k in enumerate(keys))
             vals = [self._params[k] for k in keys]
-            sql = f"SELECT * FROM {self._func}({placeholders})"
+            sql = f"SELECT * FROM {self._func}({args})"
             rows = await _fetch(conn, sql, vals)
             return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
 
