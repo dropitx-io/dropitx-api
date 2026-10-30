@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import threading
+from datetime import date, datetime, timezone
 from typing import Any
 
 import asyncpg
@@ -167,6 +168,54 @@ def _parse_select_columns(columns: str):
             main_cols.append(part)
 
     return main_cols, joins
+
+
+# ---------------------------------------------------------------------------
+# Parameter coercion — asyncpg rejects ISO-8601 strings for temporal columns
+# ---------------------------------------------------------------------------
+
+def _to_timestamptz(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    # asyncpg reads a naive datetime as local time; callers mean UTC.
+    return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+
+def _to_timestamp(value: str) -> datetime:
+    # `timestamp` has no zone: store the UTC wall clock, and asyncpg wants it naive.
+    return _to_timestamptz(value).astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def _to_date(value: str) -> date:
+    return date.fromisoformat(value)
+
+
+# Postgres type name (PreparedStatement.get_parameters()) -> str converter.
+_PARAM_CONVERTERS = {
+    "timestamptz": _to_timestamptz,
+    "timestamp": _to_timestamp,
+    "date": _to_date,
+}
+
+
+async def _bind(conn, sql: str, params: list | tuple):
+    """Prepare `sql` and convert str params to what their declared type needs."""
+    stmt = await conn.prepare(sql)
+    args = list(params)
+    for i, declared in enumerate(stmt.get_parameters()):
+        convert = _PARAM_CONVERTERS.get(declared.name)
+        if convert is not None and i < len(args) and isinstance(args[i], str):
+            args[i] = convert(args[i])
+    return stmt, args
+
+
+async def _fetch(conn, sql: str, params: list | tuple = ()):
+    stmt, args = await _bind(conn, sql, params)
+    return await stmt.fetch(*args)
+
+
+async def _fetchval(conn, sql: str, params: list | tuple = ()):
+    stmt, args = await _bind(conn, sql, params)
+    return await stmt.fetchval(*args)
 
 
 # ---------------------------------------------------------------------------
@@ -349,13 +398,13 @@ class QueryBuilder:
             sql += f" OFFSET {self._offset_val}"
 
         logger.debug("SQL: %s PARAMS: %s", sql, params)
-        rows = await conn.fetch(sql, *params)
+        rows = await _fetch(conn, sql, params)
 
         # Populate count if requested
         count_val = None
         if self._count == "exact":
             count_sql = f"SELECT COUNT(*) FROM {self._table}{where}"
-            count_row = await conn.fetchval(count_sql, *params)
+            count_row = await _fetchval(conn, count_sql, params)
             count_val = count_row
 
         return PostgRESTResponse(
@@ -379,12 +428,12 @@ class QueryBuilder:
                 all_vals.extend(row.get(c) for c in cols)
             ph = ", ".join(f"${i+1}" for i in range(len(cols) * len(payload)))
             sql = f"INSERT INTO {self._table} ({col_list}) VALUES ({ph}) RETURNING *"
-            rows = await conn.fetch(sql, *all_vals)
+            rows = await _fetch(conn, sql, all_vals)
         else:
             vals = [payload[c] for c in cols]
             ph = ", ".join(f"${i+1}" for i in range(len(cols)))
             sql = f"INSERT INTO {self._table} ({col_list}) VALUES ({ph}) RETURNING *"
-            rows = await conn.fetch(sql, *vals)
+            rows = await _fetch(conn, sql, vals)
 
         return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
 
@@ -404,13 +453,13 @@ class QueryBuilder:
         sql = f"UPDATE {self._table} SET {', '.join(set_parts)}{where} RETURNING *"
 
         logger.debug("SQL: %s PARAMS: %s", sql, set_params + where_params)
-        rows = await conn.fetch(sql, *set_params, *where_params)
+        rows = await _fetch(conn, sql, [*set_params, *where_params])
         return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
 
     async def _do_delete(self, conn) -> PostgRESTResponse:
         where, params = self._build_where()
         sql = f"DELETE FROM {self._table}{where} RETURNING *"
-        rows = await conn.fetch(sql, *params)
+        rows = await _fetch(conn, sql, params)
         return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
 
 
@@ -433,7 +482,7 @@ class RPCBuilder:
             placeholders = ", ".join(f"${i+1}" for i in range(len(keys)))
             vals = [self._params[k] for k in keys]
             sql = f"SELECT * FROM {self._func}({placeholders})"
-            rows = await conn.fetch(sql, *vals)
+            rows = await _fetch(conn, sql, vals)
             return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
 
 
