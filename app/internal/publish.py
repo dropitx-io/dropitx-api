@@ -196,13 +196,13 @@ async def _resolve_custom_slug(user_id: str, custom_slug: str) -> str:
     # Fetch user handle
     try:
         resp = await asyncio.to_thread(
-            lambda: client.table("profiles")
-            .select("handle")
-            .eq("id", user_id)
+            lambda: client.table("user_profiles")
+            .select("username")
+            .eq("user_id", user_id)
             .execute(),
         )
         rows = resp.data or []
-        handle = rows[0]["handle"] if rows else None
+        handle = rows[0]["username"] if rows else None
     except Exception as exc:
         logger.warning("Failed to fetch handle for user=%s: %s", user_id, exc)
         handle = None

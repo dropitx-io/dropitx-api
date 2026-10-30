@@ -70,6 +70,7 @@ CREATE OR REPLACE FUNCTION accept_team_invite(
     p_token TEXT,
     p_user_id TEXT
 ) RETURNS TABLE(team_id UUID, team_name TEXT) AS $$
+#variable_conflict use_column
 DECLARE
     v_invite RECORD;
     v_team_id UUID;
@@ -104,14 +105,16 @@ CREATE OR REPLACE FUNCTION create_team_invite(
     p_email TEXT,
     p_role TEXT,
     p_invited_by TEXT,
-    p_token TEXT
+    p_token TEXT,
+    p_expires_at TIMESTAMPTZ DEFAULT NULL
 ) RETURNS TABLE(id UUID, team_id UUID, email TEXT, role TEXT, token TEXT) AS $$
 DECLARE
     v_id UUID;
 BEGIN
-    INSERT INTO team_invitations (team_id, email, role, invited_by, token)
-    VALUES (p_team_id, p_email, p_role, p_invited_by, p_token)
-    RETURNING id INTO v_id;
+    INSERT INTO team_invitations (team_id, email, role, invited_by, token, expires_at)
+    VALUES (p_team_id, p_email, p_role, p_invited_by, p_token,
+            COALESCE(p_expires_at, now() + interval '7 days'))
+    RETURNING team_invitations.id INTO v_id;
 
     RETURN QUERY SELECT v_id, p_team_id, p_email, p_role, p_token;
 END;

@@ -99,6 +99,7 @@ CREATE TABLE IF NOT EXISTS teams (
     slug TEXT NOT NULL UNIQUE,
     description TEXT,
     owner_id TEXT REFERENCES auth.users(id) ON DELETE CASCADE,
+    plan TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -189,19 +190,19 @@ CREATE TABLE IF NOT EXISTS share_groups (
 CREATE INDEX IF NOT EXISTS idx_share_groups_slug ON share_groups(slug);
 CREATE INDEX IF NOT EXISTS idx_share_groups_user_id ON share_groups(user_id);
 
+-- Content snapshots of /api/v1/documents shares (app/v1/revisions.py).
 CREATE TABLE IF NOT EXISTS share_revisions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    share_slug TEXT NOT NULL REFERENCES shares(slug) ON DELETE CASCADE,
-    version_num INTEGER NOT NULL,
+    share_id UUID NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
+    revision INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    filename TEXT,
     title TEXT,
-    content TEXT,
-    content_html TEXT,
-    user_id TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE(share_slug, version_num)
+    UNIQUE(share_id, revision)
 );
 
-CREATE INDEX IF NOT EXISTS idx_share_revisions_share_slug ON share_revisions(share_slug);
+CREATE INDEX IF NOT EXISTS idx_share_revisions_created_at ON share_revisions(created_at);
 
 CREATE TABLE IF NOT EXISTS share_versions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -218,12 +219,14 @@ CREATE TABLE IF NOT EXISTS share_comments (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     share_slug TEXT NOT NULL REFERENCES shares(slug) ON DELETE CASCADE,
     user_id TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
+    parent_id UUID REFERENCES share_comments(id) ON DELETE CASCADE,
     author_name TEXT NOT NULL,
     content TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS idx_share_comments_slug ON share_comments(share_slug);
+CREATE INDEX IF NOT EXISTS idx_share_comments_parent_id ON share_comments(parent_id);
 CREATE INDEX IF NOT EXISTS idx_share_comments_created_at ON share_comments(created_at DESC);
 
 -- =========================================================================
