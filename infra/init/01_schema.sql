@@ -229,18 +229,25 @@ CREATE INDEX IF NOT EXISTS idx_share_comments_created_at ON share_comments(creat
 -- =========================================================================
 -- Share views + stars + tags + folders + profiles
 -- =========================================================================
+-- One row per recorded view (POST /api/analytics/track). Read only through the
+-- analytics functions in 03_analytics.sql. visitor_hash is sha256(ip|user-agent);
+-- is_unique is false for a repeat by the same visitor within one hour.
 CREATE TABLE IF NOT EXISTS share_views (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    share_slug TEXT NOT NULL REFERENCES shares(slug) ON DELETE CASCADE,
-    viewer_ip TEXT,
-    user_agent TEXT,
-    referer TEXT,
-    country TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    id BIGSERIAL PRIMARY KEY,
+    share_id UUID NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
+    viewed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    referrer TEXT,
+    referrer_source TEXT NOT NULL DEFAULT 'direct',
+    country_code TEXT CHECK (country_code ~ '^[A-Z]{2}$'),
+    user_agent_class TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (user_agent_class IN ('desktop', 'mobile', 'bot', 'unknown')),
+    visitor_hash TEXT,
+    is_unique BOOLEAN NOT NULL DEFAULT false
 );
 
-CREATE INDEX IF NOT EXISTS idx_share_views_share_slug ON share_views(share_slug);
-CREATE INDEX IF NOT EXISTS idx_share_views_created_at ON share_views(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_share_views_share_date ON share_views(share_id, viewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_share_views_viewed_at ON share_views(viewed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_share_views_visitor ON share_views(share_id, visitor_hash, viewed_at DESC);
 
 CREATE TABLE IF NOT EXISTS share_stars (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,

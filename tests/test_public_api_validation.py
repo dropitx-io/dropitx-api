@@ -5,7 +5,7 @@ No Supabase connection needed — Pydantic validation runs before the handler.
 
 8 PUBLIC endpoints returning 422 without required fields:
   1. POST /api/shares/{slug}/unlock     — body.password (str, min 1)
-  2. POST /api/analytics/track          — body.tracking_token, body.share_id
+  2. POST /api/analytics/track          — body.slug
   3. POST /api/shares/{slug}/comments   — body.author_name, body.content
   4. POST /api/upload                   — multipart file
   5. POST /api/upload/batch             — multipart files
@@ -90,46 +90,27 @@ class TestShareUnlock:
 
 # ---------------------------------------------------------------------------
 # 2. POST /api/analytics/track
-#    Required: body.tracking_token (str, min 1), body.share_id (str, min 1)
+#    Required: body.slug (str, 1-200)
 # ---------------------------------------------------------------------------
 
 class TestAnalyticsTrack:
     async def test_422_without_fields(self):
         async with await _client() as c:
             resp = await c.post("/api/analytics/track", json={})
-        _assert_422(resp, ["tracking_token", "share_id"])
+        _assert_422(resp, ["slug"])
 
-    async def test_422_missing_share_id(self):
+    async def test_422_empty_slug(self):
         async with await _client() as c:
-            resp = await c.post(
-                "/api/analytics/track",
-                json={"tracking_token": "tok_abc"},
-            )
-        _assert_422(resp, ["share_id"])
-
-    async def test_422_missing_tracking_token(self):
-        async with await _client() as c:
-            resp = await c.post(
-                "/api/analytics/track",
-                json={"share_id": "some-id"},
-            )
-        _assert_422(resp, ["tracking_token"])
-
-    async def test_422_empty_tracking_token(self):
-        async with await _client() as c:
-            resp = await c.post(
-                "/api/analytics/track",
-                json={"tracking_token": "", "share_id": "some-id"},
-            )
-        _assert_422(resp, ["tracking_token"])
+            resp = await c.post("/api/analytics/track", json={"slug": ""})
+        _assert_422(resp, ["slug"])
 
     async def test_valid_body_passes_validation(self):
         async with await _client() as c:
             resp = await c.post(
                 "/api/analytics/track",
-                json={"tracking_token": "tok_abc", "share_id": "some-id"},
+                json={"slug": "abc123", "referrer": "https://example.org", "is_embed": True},
             )
-        assert resp.status_code == 200
+        assert resp.status_code == 204
 
 
 # ---------------------------------------------------------------------------

@@ -6,10 +6,9 @@ from pydantic import BaseModel, Field
 
 
 class AnalyticsTrack(BaseModel):
-    """Payload for tracking a share view event."""
-    tracking_token: str = Field(min_length=1)
-    share_id: str = Field(min_length=1)
-    referrer: str | None = None
+    """Payload for recording one view of a share page."""
+    slug: str = Field(min_length=1, max_length=200)
+    referrer: str | None = Field(default=None, max_length=2048)
     is_embed: bool = False
 
 
