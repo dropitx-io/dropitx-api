@@ -11,12 +11,12 @@ from fastapi.exceptions import HTTPException
 from pydantic import BaseModel, Field
 
 from app.dependencies import User, get_client_ip, get_current_user
-from core.config import settings
 from core.extract_text import extract_text_from_html
 from core.language_detect import detect_language
 from core.nanoid import generate_delete_token, generate_slug
 from core.rate_limit import check_upload_rate_limit
 from core.security import hash_password
+from core.share_urls import share_page_url
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -107,7 +107,7 @@ async def publish(
 
     # Insert into shares table
     plain_text = extract_text_from_html(body.content)
-    share_url = f"{settings.supabase_url}/storage/v1/object/public/html-files/{storage_path}"
+    share_url = share_page_url(slug)
 
     # Compute expiration (A4)
     _EXPIRATION_OPTIONS = {"1h": 3600, "6h": 21600, "24h": 86400, "7d": 604800, "30d": 2592000}
@@ -356,7 +356,7 @@ async def update_publish(
         logger.error("DB update failed for slug=%s: %s", slug, exc)
         raise HTTPException(status_code=500, detail="Failed to update share") from exc
 
-    share_url = f"{settings.supabase_url}/storage/v1/object/public/html-files/{storage_path}"
+    share_url = share_page_url(slug)
 
     return PublishResponse(
         slug=slug,

@@ -10,7 +10,6 @@ from app.dependencies import User, get_current_user
 
 MOCK_SETTINGS = {
     "firebase_project_id": "test-project",
-    "supabase_url": "https://test.supabase.co",
     "allowed_origins": "*",
     "frontend_url": "https://dropitx.com",
 }

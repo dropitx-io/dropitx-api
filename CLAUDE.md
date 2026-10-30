@@ -8,7 +8,7 @@ DropItX API — a FastAPI backend for file/text sharing with team collaboration.
 
 **Backend is hybrid, mid-migration off Supabase cloud (see `7b7b8c3`):**
 - **Data + Storage** — local PostgreSQL + MinIO, accessed through a hand-rolled PostgREST-compatible shim (`core/db.py`). No live Supabase project needed for these.
-- **Auth** — Firebase ID token verification via `core/security.py`'s `verify_firebase_jwt`: RS256 signature checks against Google's rotating public x509 certs plus `aud`/`iss` claims for the configured `FIREBASE_PROJECT_ID`. `SUPABASE_URL` is retained only for storage-URL construction, not auth.
+- **Auth** — Firebase ID token verification via `core/security.py`'s `verify_firebase_jwt`: RS256 signature checks against Google's rotating public x509 certs plus `aud`/`iss` claims for the configured `FIREBASE_PROJECT_ID`.
 
 ## Commands
 
@@ -47,7 +47,7 @@ For a comprehensive API reference (90+ endpoints across health, documents, keys,
 - **`core/db.py`** — PostgREST-compatible shim over `asyncpg`: `.table().select/insert/update/delete()`, `.rpc()`, `.storage.from_()` (MinIO/S3 via `boto3`). Runs its own background event loop thread so sync `execute()` calls work from `asyncio.to_thread()`. Handles nested-select JOIN parsing (`"*, teams(id,name)"`) and PostgREST-style filter operators (`eq`, `is_`, `in_`, etc.) — extend here when a route needs a new query shape, not by reaching for raw SQL in the route.
 - **`core/supabase.py`** — thin re-export of `get_admin_client`/`get_anon_client`/`get_user_client` from `core/db.py`. All three currently return the same `DatabaseClient` singleton; local dev has no RLS/anon distinction, so authorization is enforced at the app layer (explicit `user_id`/role checks in routes), not by which client you grab.
 - **`core/security.py`** — Firebase ID token verification (`verify_firebase_jwt`: RS256 against Google's x509 cert endpoint, `_CERTS_TTL` 1-hour cache with a refetch on `kid` miss), API key hashing, password hashing
-- **`core/config.py`** — `Settings` (Pydantic BaseSettings): `firebase_project_id` (auth, required), `database_url` (Postgres), `s3_endpoint`/`s3_access_key`/`s3_secret_key` (MinIO), plus the legacy `supabase_url` (storage-URL construction only; not used for auth)
+- **`core/config.py`** — `Settings` (Pydantic BaseSettings): `firebase_project_id` (auth, required), `database_url` (Postgres), `s3_endpoint`/`s3_access_key`/`s3_secret_key` (MinIO), plus `storage_public_url` (browser-facing base URL of the object store, used by `core.db.public_object_url`)
 - **`core/`** (rest) — text extraction, slug/token generation (`nanoid.py`), rate limiting, encryption (AES-256-GCM), exception definitions, structured logging, middleware, language detection, thumbnail generation
 - **`app/dependencies.py`** — Auth providers: `get_current_user` (JWT), `get_optional_user`, `get_api_key` (shk_/sht_ validation), `get_client_ip`
 - **`app/main.py`** — Router registration, health endpoints (`/health`, `/health/deep`), exception handlers, startup tasks (background cleanup)
@@ -76,7 +76,7 @@ For a comprehensive API reference (90+ endpoints across health, documents, keys,
 - **Role hierarchy** — `owner (3) > editor (2) > viewer (1)` for team permissions (checked via `team_helpers.py`)
 - **API keys** — `shk_` (personal), `sht_` (team) prefixes. Stored as SHA-256 hashes; raw key returned once at creation. Last-used timestamp tracked (fire-and-forget async update)
 - **Encryption (E2E)** — AES-256-GCM with PBKDF2 key derivation. Shares can be password-protected; passwords unlock but do not grant modification rights
-- **Storage buckets** — `html-files` (upload/publish flows), `shares` (v1 API documents) — created automatically by the `createbuckets` service in `docker-compose.yml`
+- **Storage buckets** — `html-files` (upload/publish flows), `shares` (v1 API documents) — created automatically by the `createbuckets` service in `docker-compose.yml`. Both are private: only `html-files/public/` allows anonymous download, and only public assets (editor images under `public/uploads/`, thumbnails under `public/thumbnails/`) are stored there and linked by URL. Share content is served by the API, and responses link to the share page (`{FRONTEND_URL}/s/{slug}`), never to a storage URL
 - **Background cleanup** — Periodically (5-min interval) deletes expired file request uploads and old share revisions to conserve storage
 
 ## Deployment
@@ -90,7 +90,7 @@ For a comprehensive API reference (90+ endpoints across health, documents, keys,
 
 Required in `.env` (see `.env.example` for the Supabase-cloud baseline, `.env.local.example` for the local Postgres+MinIO stack):
 - `FIREBASE_PROJECT_ID` — Firebase project ID (auth, required); verifies the `aud`/`iss` claims of incoming ID tokens
-- `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` — Legacy; `SUPABASE_URL` is used only to build public storage object URLs (upload/publish/images/preview/thumbnail/oembed), not for auth or data
+- `STORAGE_PUBLIC_URL` — browser-facing base URL of the object store (default `http://localhost:9000`); public asset URLs are `{STORAGE_PUBLIC_URL}/{bucket}/{key}`
 - `DATABASE_URL` — local Postgres connection string (default `postgresql://dropitx:dropitx_local_dev@localhost:5432/dropitx`)
 - `S3_ENDPOINT` / `S3_ACCESS_KEY` / `S3_SECRET_KEY` — MinIO connection (defaults match `docker-compose.yml`)
 - `ALLOWED_ORIGINS` — Comma-separated CORS origins

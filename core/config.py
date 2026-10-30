@@ -5,10 +5,6 @@ class Settings(BaseSettings):
     # --- Firebase Auth (ID token verification) ---
     firebase_project_id: str = ""
 
-    # Legacy: still used only to build public storage object URLs
-    # (upload/publish/images/preview/thumbnail/oembed). Not used for auth.
-    supabase_url: str = ""
-
     # --- Local PostgreSQL ---
     database_url: str = "postgresql://dropitx:dropitx_local_dev@localhost:5432/dropitx"
 
@@ -16,6 +12,8 @@ class Settings(BaseSettings):
     s3_endpoint: str = "http://localhost:9000"
     s3_access_key: str = "dropitx"
     s3_secret_key: str = "dropitx_local_dev"
+    # Browser-facing base URL of the object store, used to build URLs of public assets.
+    storage_public_url: str = "http://localhost:9000"
 
     # --- App ---
     allowed_origins: str = "http://localhost:3000"

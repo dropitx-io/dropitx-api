@@ -16,6 +16,7 @@ from core.language_detect import detect_language, get_all_languages
 from core.nanoid import generate_delete_token, generate_slug
 from core.rate_limit import check_upload_rate_limit
 from core.security import hash_password
+from core.share_urls import share_page_url
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -268,7 +269,7 @@ async def upload(
             plain_text = extract_text_from_markdown(content_str)
 
     # Insert into shares table
-    share_url = f"{settings.supabase_url}/storage/v1/object/public/html-files/{storage_path}"
+    share_url = share_page_url(slug)
     filename = file.filename or f"upload.{ext}"
 
     # Calculate expires_at
@@ -310,9 +311,11 @@ async def upload(
         await _cleanup_storage(storage_path)
         raise HTTPException(status_code=500, detail="Failed to save share") from exc
 
-    # Generate thumbnail for images (fire-and-forget)
-    from core.thumbnail import maybe_generate_thumbnail
-    asyncio.create_task(maybe_generate_thumbnail(content_bytes, content_type, storage_path))
+    # Generate thumbnail for images (fire-and-forget). A thumbnail is a public
+    # asset, so none is made for content that is gated or ephemeral.
+    if not (password or encrypted or burn_after_reading or one_time_download):
+        from core.thumbnail import maybe_generate_thumbnail
+        asyncio.create_task(maybe_generate_thumbnail(content_bytes, content_type, storage_path))
 
     resp = UploadResponse(
         slug=slug,
@@ -433,7 +436,7 @@ async def upload_batch(
             else:
                 plain_text = extract_text_from_markdown(content_str)
 
-        share_url = f"{settings.supabase_url}/storage/v1/object/public/html-files/{storage_path}"
+        share_url = share_page_url(slug)
         filename = file.filename or f"upload.{ext}"
 
         row_data: dict = {
@@ -465,9 +468,11 @@ async def upload_batch(
             await _cleanup_batch(uploaded_paths, group_slug, client)
             raise HTTPException(status_code=500, detail=f"Failed to save {file.filename}") from exc
 
-        # Generate thumbnail for images (fire-and-forget)
-        from core.thumbnail import maybe_generate_thumbnail
-        asyncio.create_task(maybe_generate_thumbnail(content_bytes, content_type, storage_path))
+        # Generate thumbnail for images (fire-and-forget); thumbnails are public
+        # assets, so none is made for password-protected content.
+        if not password:
+            from core.thumbnail import maybe_generate_thumbnail
+            asyncio.create_task(maybe_generate_thumbnail(content_bytes, content_type, storage_path))
 
         uploaded_files.append({
             "slug": slug,

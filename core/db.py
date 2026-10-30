@@ -511,6 +511,16 @@ class RPCBuilder:
 # Storage — MinIO/S3 via boto3
 # ---------------------------------------------------------------------------
 
+# Objects meant to be fetched anonymously live under this key prefix in the
+# `html-files` bucket; the bucket policy grants anonymous download on it alone.
+PUBLIC_PREFIX = "public/"
+
+
+def public_object_url(bucket: str, key: str) -> str:
+    """Browser-facing URL of a storage object. Only meaningful for keys under PUBLIC_PREFIX."""
+    return f"{settings.storage_public_url.rstrip('/')}/{bucket}/{key}"
+
+
 class StorageBucket:
     def __init__(self, bucket: str):
         self._bucket = bucket
@@ -548,9 +558,6 @@ class StorageBucket:
     def update(self, path: str, file: bytes, file_options: dict | None = None):
         """Overwrite an existing object (same as upload in S3)."""
         return self.upload(path, file, file_options)
-
-    def get_public_url(self, path: str) -> str:
-        return f"{settings.s3_endpoint}/{self._bucket}/{path}"
 
 
 class StorageNamespace:

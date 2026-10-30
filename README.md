@@ -43,7 +43,7 @@ Server starts at `http://localhost:8000`. Interactive docs at `/docs`.
 Create `.env` in the project root:
 
 ```env
-SUPABASE_URL=https://your-project.supabase.co
+STORAGE_PUBLIC_URL=http://localhost:9000
 SUPABASE_ANON_KEY=your-anon-key
 SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 ALLOWED_ORIGINS=http://localhost:3000,https://yourdomain.com
@@ -52,7 +52,7 @@ FRONTEND_URL=http://localhost:3000
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `SUPABASE_URL` | Yes | Supabase project URL |
+| `STORAGE_PUBLIC_URL` | No | Browser-facing base URL of the object store (default `http://localhost:9000`); anonymous reads are limited to `html-files/public/` |
 | `SUPABASE_ANON_KEY` | Yes | Supabase anon/public key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service-role key (bypasses RLS) |
 | `ALLOWED_ORIGINS` | Yes | Comma-separated CORS origins |

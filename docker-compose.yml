@@ -49,8 +49,7 @@ services:
       mc alias set local http://minio:9000 dropitx dropitx_local_dev;
       mc mb local/html-files --ignore-existing;
       mc mb local/shares --ignore-existing;
-      mc anonymous set download local/html-files;
-      mc anonymous set download local/shares;
+      mc anonymous set download local/html-files/public;
       exit 0;
       "
 

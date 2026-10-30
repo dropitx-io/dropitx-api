@@ -51,7 +51,7 @@ jobs:
       S3_ACCESS_KEY: dropitx
       S3_SECRET_KEY: dropitx_local_dev
       FIREBASE_PROJECT_ID: dropitx-ci
-      SUPABASE_URL: http://localhost:9000
+      STORAGE_PUBLIC_URL: http://localhost:9000
       ALLOWED_ORIGINS: http://localhost:3000
       FRONTEND_URL: http://localhost:3000
     steps:
@@ -79,8 +79,7 @@ jobs:
             mc alias set local http://localhost:9000 dropitx dropitx_local_dev &&
             mc mb local/html-files --ignore-existing &&
             mc mb local/shares --ignore-existing &&
-            mc anonymous set download local/html-files &&
-            mc anonymous set download local/shares'
+            mc anonymous set download local/html-files/public'
 
       # Known failures on main (repo never had CI; fix and shrink this list):
       # - health/deep route no longer exists in app/main.py (README is stale)

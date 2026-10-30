@@ -13,7 +13,6 @@ from app.main import app
 from app.public.preview import (
     _classify_preview,
     _detect_code_language,
-    _build_storage_url,
     _build_thumbnail_url,
 )
 
@@ -194,17 +193,9 @@ class TestClassifyPreview:
 class TestBuildUrls:
     """Test URL building helpers."""
 
-    def test_storage_url_html_files(self):
-        url = _build_storage_url("shares/abc123.png", "html-files")
-        assert "/storage/v1/object/public/html-files/shares/abc123.png" in url
-
-    def test_storage_url_shares_bucket(self):
-        url = _build_storage_url("user123/abc", "shares")
-        assert "/storage/v1/object/public/shares/user123/abc" in url
-
     def test_thumbnail_url_basic(self):
         url = _build_thumbnail_url("shares/abc123.png")
-        assert "thumbnails/shares/abc123_thumb.jpg" in url
+        assert url.endswith("/html-files/public/thumbnails/shares/abc123_thumb.jpg")
 
     def test_thumbnail_url_no_extension(self):
         url = _build_thumbnail_url("noextfile")
@@ -212,7 +203,7 @@ class TestBuildUrls:
 
     def test_thumbnail_url_multiple_dots(self):
         url = _build_thumbnail_url("shares/my.file.name.png")
-        assert "thumbnails/shares/my.file.name_thumb.jpg" in url
+        assert url.endswith("/html-files/public/thumbnails/shares/my.file.name_thumb.jpg")
 
 
 # ---------------------------------------------------------------------------
