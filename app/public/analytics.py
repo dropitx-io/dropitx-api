@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Request, Response
 
 from app.dependencies import get_client_ip
 from core.config import settings
-from core.rate_limit import check_public_read_rate_limit
+from core.rate_limit import check_analytics_rate_limit
 from core.supabase import get_admin_client
 from models.analytics import AnalyticsTrack
 
@@ -75,10 +75,11 @@ async def track_view(request: Request, body: AnalyticsTrack):
 
     Does not change shares.view_count: GET /api/shares/{slug}/content counts views.
     Answers 204 whether or not a view was recorded, so the response never reveals
-    whether a slug exists or is private. Spends the public-read rate limit.
+    whether a slug exists or is private. Rate-limited in its own per-IP bucket, so
+    tracking never eats into the budget of the content reads it accompanies.
     """
     ip = get_client_ip(request)
-    rate = check_public_read_rate_limit(ip)
+    rate = check_analytics_rate_limit(ip)
     if not rate.success:
         raise HTTPException(
             status_code=429,

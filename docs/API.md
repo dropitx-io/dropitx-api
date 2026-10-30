@@ -196,7 +196,7 @@ Sources: `app/public/search.py`, `app/public/analytics.py`, `app/public/oembed.p
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/search` | Full-text search via RPC `search_shares`. Query: `q` (2–200 chars), `page`, `limit` (≤100). |
-| POST | `/api/analytics/track` | Record one view of a share page as a `share_views` row; does not change `view_count` (the content route counts views). Spends the public-read rate limit (60/min per IP, 429 when exceeded). Body `AnalyticsTrack(slug, referrer?, is_embed?)`. Returns **204** whether or not a view was recorded (private and unknown slugs record nothing). |
+| POST | `/api/analytics/track` | Record one view of a share page as a `share_views` row; does not change `view_count` (the content route counts views). Rate-limited in its own bucket (60/min per IP, separate from content reads; 429 when exceeded). Body `AnalyticsTrack(slug, referrer?, is_embed?)`. Returns **204** whether or not a view was recorded (private and unknown slugs record nothing). |
 | GET | `/api/oembed` | oEmbed discovery for a share URL. Query: `url`, `maxwidth?`, `maxheight?`. Rate-limited 60/min. |
 | GET | `/api/qr/{slug}` | QR code image for a share. |
 | GET | `/api/languages` | Supported languages for syntax highlighting. |

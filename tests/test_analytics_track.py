@@ -11,7 +11,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from core.rate_limit import check_public_read_rate_limit
 from core.supabase import get_admin_client
 
 IPHONE = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148"
@@ -125,16 +124,51 @@ def test_private_and_unknown_shares_record_nothing_and_answer_alike(client, make
     assert _views(private["id"]) == []
 
 
-def test_track_spends_the_public_read_rate_limit(client, make_share):
+@pytest.fixture
+def stored_share(make_share):
+    """A public share whose content object exists, so /content can answer 200."""
+    slug = f"trk-{uuid.uuid4().hex[:10]}"
+    path = f"test-analytics/{slug}.html"
+    bucket = get_admin_client().storage.from_("html-files")
+    bucket.upload(path, b"<p>hello</p>", file_options={"content-type": "text/html"})
+    yield make_share(slug=slug, storage_path=path, source="upload")
+    bucket.remove([path])
+
+
+def _content(client, slug, ip):
+    return client.get(f"/api/shares/{slug}/content", headers={"cf-connecting-ip": ip})
+
+
+def test_track_answers_429_once_its_own_bucket_is_spent(client, make_share):
     share = make_share()
     ip = _ip()
-    for _ in range(60):
-        check_public_read_rate_limit(ip)
 
-    resp = _track(client, share["slug"], ip)
+    statuses = [_track(client, share["slug"], ip).status_code for _ in range(61)]
 
-    assert resp.status_code == 429
-    assert _views(share["id"]) == []
+    assert statuses == [204] * 60 + [429]
+    assert len(_views(share["id"])) == 60
+
+
+def test_spent_track_bucket_leaves_content_reads_open(client, stored_share):
+    ip = _ip()
+    for _ in range(61):
+        _track(client, stored_share["slug"], ip)
+
+    resp = _content(client, stored_share["slug"], ip)
+
+    assert resp.status_code == 200
+    assert resp.json()["content"] == "<p>hello</p>"
+
+
+def test_spent_read_bucket_leaves_track_open(client, stored_share):
+    ip = _ip()
+    reads = [_content(client, stored_share["slug"], ip).status_code for _ in range(61)]
+
+    resp = _track(client, stored_share["slug"], ip)
+
+    assert reads[-1] == 429
+    assert resp.status_code == 204
+    assert len(_views(stored_share["id"])) == 1
 
 
 def test_slug_is_required(client):

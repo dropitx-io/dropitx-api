@@ -107,3 +107,8 @@ def check_public_read_rate_limit(ip: str) -> RateLimitResult:
 def check_domain_resolve_rate_limit(ip: str) -> RateLimitResult:
     """60 domain-resolve lookups per minute per IP. Fail-open."""
     return _check_rpc(f"domresolve:{ip}", max_attempts=60, window_secs=60, fail_open=True)
+
+
+def check_analytics_rate_limit(ip: str) -> RateLimitResult:
+    """60 view-tracking pings per minute per IP, apart from the public-read bucket. Fail-open."""
+    return _check_rpc(f"analytics:{ip}", max_attempts=60, window_secs=60, fail_open=True)
