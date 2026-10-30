@@ -50,7 +50,7 @@ async def search_shares(
     results = [SearchResult(**row) for row in rows]
 
     response = JSONResponse(content={
-        "results": [r.model_dump() for r in results],
+        "results": [r.model_dump(mode="json") for r in results],
         "page": page,
         "limit": limit,
         "total": len(results),
