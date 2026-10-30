@@ -16,7 +16,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from app.dependencies import User, get_current_user, get_optional_user
+from app.dependencies import ApiKeyAuth, User, get_api_key, get_current_user, get_optional_user
 from app.main import app
 from core.config import Settings, settings
 from core.db import public_object_url
@@ -327,6 +327,23 @@ class TestThumbnailFollowsShareProtection:
         resp = client.put(f"/api/publish/{share['slug']}", json={"content": "<p>x</p>", **extra})
         assert resp.status_code == 200, resp.text
         assert _thumbnail_gone(share)
+
+    def test_v1_document_delete_removes_the_public_thumbnail(self, client, owner, objects):
+        share = _seed_image_share(owner, objects)
+        app.dependency_overrides[get_api_key] = lambda: ApiKeyAuth(user_id=owner.id, key_id="k")
+        resp = client.delete(f"/api/v1/documents/{share['slug']}")
+        assert resp.status_code == 204, resp.text
+        assert _thumbnail_gone(share)
+
+    def test_v1_document_delete_removes_an_upload_share_object_from_html_files(
+        self, client, owner, objects
+    ):
+        share = _seed_image_share(owner, objects)
+        app.dependency_overrides[get_api_key] = lambda: ApiKeyAuth(user_id=owner.id, key_id="k")
+        resp = client.delete(f"/api/v1/documents/{share['slug']}")
+        assert resp.status_code == 204, resp.text
+        with pytest.raises(Exception):
+            get_admin_client().storage.from_("html-files").download(share["storage_path"])
 
     def test_delete_removes_the_public_thumbnail(self, client, owner, objects):
         share = _seed_image_share(owner, objects)

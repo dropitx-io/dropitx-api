@@ -18,6 +18,7 @@ from app.v1.document_helpers import (
 )
 from core.nanoid import generate_delete_token, generate_slug
 from core.supabase import get_admin_client
+from core.thumbnail import remove_thumbnail
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/documents", tags=["Documents"])
@@ -333,9 +334,12 @@ async def delete_document(
     client = get_admin_client()
     row = await find_document(client, slug, auth)
 
+    # Same bucket rule as every other reader: /api/upload and editor shares live in html-files.
+    bucket = "html-files" if row.get("source") in ("upload", "editor") else _STORAGE_BUCKET
+    await remove_thumbnail(row["storage_path"])
     try:
         await asyncio.to_thread(
-            lambda: client.storage.from_(_STORAGE_BUCKET).remove([row["storage_path"]]),
+            lambda: client.storage.from_(bucket).remove([row["storage_path"]]),
         )
     except Exception as exc:
         logger.warning("Storage removal failed for %s: %s", row["storage_path"], exc)
