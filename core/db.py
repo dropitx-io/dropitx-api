@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 import uuid
 from datetime import date, datetime, timezone
@@ -93,7 +94,8 @@ class PostgRESTResponse:
     __slots__ = ("data", "count")
 
     def __init__(self, data=None, count: int | None = None):
-        self.data = data or []
+        # A scalar RPC result (0, False) is data, not "no rows".
+        self.data = [] if data is None else data
         self.count = count
 
     def __repr__(self):
@@ -119,56 +121,66 @@ def _serialize_row(row) -> dict:
     return out
 
 
-def _parse_select_columns(columns: str):
-    """Parse PostgREST select syntax into main columns and JOIN specs.
+_IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*$")
+_SPLIT_TOP_LEVEL = re.compile(r",\s*(?![^()]*\))")
+_EMBED = re.compile(r"^(\w+)(?:!(\w+))?\((.+)\)$")
 
-    Examples:
-        "team_id, role, joined_at, teams(*)"
-            → (["team_id", "role", "joined_at"], [("team_id", "teams", "*")])
-        "*, user_profiles!user_id(display_name, avatar_url)"
-            → (["*"], [("user_id", "user_profiles", "display_name, avatar_url")])
-        "*, teams(id, name, slug), user_profiles!invited_by(id, display_name)"
-            → (["*"], [("team_id", "teams", "id, name, slug"), ("invited_by", "user_profiles", "id, display_name")])
+# Column of the foreign table a to-one embed matches the base column against.
+# Firebase uids are user_profiles.user_id (TEXT); user_profiles.id is a UUID.
+_EMBED_KEY = {"user_profiles": "user_id"}
 
-    Returns:
-        (main_columns: list[str], joins: list[(fk_col, fk_table, fk_cols)])
+
+def _identifier(name: str) -> str:
+    if not _IDENTIFIER.match(name):
+        raise ValueError(f"select spec: {name!r} is not a valid identifier")
+    return name
+
+
+def _parse_select_columns(columns: str) -> tuple[list[str], list[tuple[str, str | None, list[str]]]]:
+    """Split a PostgREST select string into main columns and embeds.
+
+    "team_id, role, teams(*)"            -> (["team_id", "role"], [("teams", None, ["*"])])
+    "*, user_profiles!user_id(a, b)"     -> (["*"], [("user_profiles", "user_id", ["a", "b"])])
     """
-    import re
-
-    main_cols = []
-    joins = []
-
-    # Split on commas, but not inside parentheses
-    parts = re.split(r",\s*(?![^()]*\))", columns)
-
-    for part in parts:
-        part = part.strip()
+    main_cols: list[str] = []
+    embeds: list[tuple[str, str | None, list[str]]] = []
+    for part in (p.strip() for p in _SPLIT_TOP_LEVEL.split(columns)):
         if not part:
             continue
-
-        # Check if this is a nested foreign table select: table(cols) or table!fk_col(cols)
-        match = re.match(r"^(\w+)(?:!(\w+))?\((.+)\)$", part)
+        match = _EMBED.match(part)
         if match:
-            fk_table = match.group(1)
-            explicit_fk = match.group(2)  # e.g. "user_id" from "user_profiles!user_id(...)"
-            nested_cols = match.group(3)
-
-            # Determine FK column: explicit or guess "{table_singular}_id"
-            if explicit_fk:
-                fk_col = explicit_fk
-            else:
-                # Guess: "teams" → "team_id", "user_profiles" → "user_id"
-                if fk_table.endswith("s"):
-                    fk_col = fk_table[:-1] + "_id"
-                else:
-                    fk_col = fk_table + "_id"
-
-            joins.append((fk_col, fk_table, nested_cols))
+            table, hint, inner = match.groups()
+            embeds.append((table, hint, [c.strip() for c in inner.split(",") if c.strip()]))
         else:
-            # Regular column
             main_cols.append(part)
+    return main_cols, embeds
 
-    return main_cols, joins
+
+def _fk_guess(table: str) -> str:
+    """Key column named after a table: teams -> team_id, team_shares -> team_share_id."""
+    return (table[:-1] if table.endswith("s") else table) + "_id"
+
+
+def embed_join(
+    base: str, foreign: str, hint: str | None, base_cols, foreign_cols,
+) -> tuple[bool, str, str]:
+    """How an embed relates to its base table: (to_one, base column, foreign column).
+
+    To-one when the base table holds the key: the hint, or `<foreign singular>_id`,
+    is a base column; it matches the foreign table's `_EMBED_KEY` column (default `id`).
+    Otherwise to-many when the foreign table holds the key: the hint, or
+    `<base singular>_id`, is a foreign column referencing base `id`.
+    """
+    col = hint or _fk_guess(foreign)
+    if col in base_cols:
+        return True, col, _EMBED_KEY.get(foreign, "id")
+    col = hint or _fk_guess(base.rsplit(".", 1)[-1])
+    if col in foreign_cols:
+        return False, "id", col
+    raise ValueError(
+        f"select spec: no column relates {base} to {foreign}"
+        + (f" through {hint!r}" if hint else "")
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +244,41 @@ async def _coerce(conn, sql: str, params: list | tuple) -> list:
     return args
 
 
+# Table name -> its column names, read once from the catalog (the schema is fixed at runtime).
+_table_columns: dict[str, frozenset[str]] = {}
+
+
+async def _columns_of(conn, table: str) -> frozenset[str]:
+    cols = _table_columns.get(table)
+    if cols is None:
+        schema, name = table.split(".", 1) if "." in table else ("public", table)
+        rows = await conn.fetch(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2",
+            schema, name,
+        )
+        cols = frozenset(r["column_name"] for r in rows)
+        if not cols:
+            raise ValueError(f"select spec: unknown table {table!r}")
+        _table_columns[table] = cols
+    return cols
+
+
+# Function name -> whether it returns a single scalar (PostgREST then returns the value itself).
+_scalar_functions: dict[str, bool] = {}
+
+
+async def _returns_scalar(conn, func: str) -> bool:
+    scalar = _scalar_functions.get(func)
+    if scalar is None:
+        scalar = bool(await conn.fetchval(
+            "SELECT bool_and(NOT p.proretset AND t.typtype IN ('b', 'd', 'e', 'r', 'm')) "
+            "FROM pg_proc p JOIN pg_type t ON t.oid = p.prorettype WHERE p.proname = $1",
+            func,
+        ))
+        _scalar_functions[func] = scalar
+    return scalar
+
+
 async def _fetch(conn, sql: str, params: list | tuple = ()):
     return await conn.fetch(sql, *await _coerce(conn, sql, params))
 
@@ -269,6 +316,16 @@ class QueryBuilder:
     def insert(self, row_data) -> "QueryBuilder":
         self._op = "insert"
         self._payload = row_data
+        return self
+
+    def upsert(self, row_data, on_conflict: str, ignore_duplicates: bool = False) -> "QueryBuilder":
+        """INSERT … ON CONFLICT (on_conflict): update the other columns, or skip the row."""
+        self._op = "upsert"
+        self._payload = row_data
+        target = [_identifier(c.strip()) for c in on_conflict.split(",") if c.strip()]
+        if not target:
+            raise ValueError("upsert needs on_conflict columns")
+        self._on_conflict = (target, ignore_duplicates)
         return self
 
     def update(self, update_data: dict) -> "QueryBuilder":
@@ -389,35 +446,58 @@ class QueryBuilder:
         async with pool.acquire() as conn:
             if self._op == "select":
                 return await self._do_select(conn)
-            elif self._op == "insert":
+            elif self._op in ("insert", "upsert"):
                 return await self._do_insert(conn)
             elif self._op == "update":
                 return await self._do_update(conn)
             elif self._op == "delete":
                 return await self._do_delete(conn)
 
+    async def _embed_columns(self, conn, main_cols: list[str], embeds) -> list[str]:
+        """Select-list entries: main columns, then one JSON subquery per embed.
+
+        A correlated subquery per embed keeps the FROM clause to the base table, so
+        main columns, filters and ORDER BY never collide with foreign column names,
+        and an unmatched to-one embed is NULL rather than an object of NULLs.
+        """
+        table = self._table
+        for name in table.split("."):
+            _identifier(name)
+        for col in main_cols:
+            if col != "*":
+                _identifier(col)
+        out = [f"{table}.*" if c == "*" else f"{table}.{c}" for c in main_cols]
+        base_cols = await _columns_of(conn, table)
+        for i, (foreign, hint, cols) in enumerate(embeds):
+            _identifier(foreign)
+            if hint is not None:
+                _identifier(hint)
+            alias = f"_e{i}"
+            if cols == ["*"]:
+                obj = f"to_json({alias})"
+            else:
+                obj = "json_build_object(" + ", ".join(
+                    f"'{_identifier(c)}', {alias}.{c}" for c in cols
+                ) + ")"
+            to_one, base_col, foreign_col = embed_join(
+                table, foreign, hint, base_cols, await _columns_of(conn, foreign),
+            )
+            match = f"FROM {foreign} AS {alias} WHERE {alias}.{foreign_col} = {table}.{base_col}"
+            if to_one:
+                out.append(f"(SELECT {obj} {match}) AS {foreign}")
+            else:
+                out.append(f"COALESCE((SELECT json_agg({obj}) {match}), '[]'::json) AS {foreign}")
+        return out
+
     async def _do_select(self, conn) -> PostgRESTResponse:
         where, params = self._build_where()
 
-        # Parse columns: may include nested foreign table selects like:
-        #   "team_id, role, joined_at, teams(*)"
-        #   "*, user_profiles!user_id(display_name, avatar_url)"
-        #   "*, teams(id, name, slug), user_profiles!invited_by(id, display_name)"
-        select_parts, join_specs = _parse_select_columns(self._columns)
-
-        # Build base SELECT (only columns from the main table)
-        main_cols = ", ".join(select_parts) if select_parts else "*"
-        sql = f"SELECT {main_cols} FROM {self._table}"
-
-        # Add JOINs for nested foreign table selects
-        join_clauses = []
-        for i, (fk_col, fk_table, fk_cols) in enumerate(join_specs):
-            alias = f"_j{i}"
-            join_clauses.append(
-                f" LEFT JOIN {fk_table} AS {alias} ON {self._table}.{fk_col} = {alias}.id"
-            )
-
-        sql += "".join(join_clauses)
+        main_cols, embeds = _parse_select_columns(self._columns)
+        if embeds:
+            select_list = ", ".join(await self._embed_columns(conn, main_cols, embeds))
+        else:
+            select_list = ", ".join(main_cols) if main_cols else "*"
+        sql = f"SELECT {select_list} FROM {self._table}"
         sql += where
 
         if self._order_by:
@@ -441,10 +521,14 @@ class QueryBuilder:
             count_row = await _fetchval(conn, count_sql, params)
             count_val = count_row
 
-        return PostgRESTResponse(
-            data=[_serialize_row(r) for r in rows],
-            count=count_val,
-        )
+        data = [_serialize_row(r) for r in rows]
+        # asyncpg hands json back as text; nest it the way PostgREST does.
+        for row in data:
+            for foreign, _, _ in embeds:
+                if row[foreign] is not None:
+                    row[foreign] = json.loads(row[foreign])
+
+        return PostgRESTResponse(data=data, count=count_val)
 
     async def _do_insert(self, conn) -> PostgRESTResponse:
         payload = self._payload
@@ -452,6 +536,23 @@ class QueryBuilder:
         if not rows_in:
             return PostgRESTResponse(data=[])
 
+        cols, values, params = self._insert_values(rows_in)
+        sql = f"INSERT INTO {self._table} ({', '.join(cols)}) VALUES {values}"
+        if self._op == "upsert":
+            target, ignore = self._on_conflict
+            if ignore:
+                sql += f" ON CONFLICT ({', '.join(target)}) DO NOTHING"
+            else:
+                # With nothing but conflict columns, a no-op SET still returns the existing row.
+                updated = [c for c in cols if c not in target] or target
+                sets = ", ".join(f"{c} = EXCLUDED.{c}" for c in updated)
+                sql += f" ON CONFLICT ({', '.join(target)}) DO UPDATE SET {sets}"
+        rows = await _fetch(conn, sql + " RETURNING *", params)
+        return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
+
+    @staticmethod
+    def _insert_values(rows_in: list[dict]) -> tuple[list[str], str, list]:
+        """Column list, VALUES groups and their parameters for one INSERT of `rows_in`."""
         # Union of keys: first row's order, then keys first seen in later rows.
         cols = list(dict.fromkeys(key for row in rows_in for key in row))
 
@@ -468,10 +569,7 @@ class QueryBuilder:
                 else:
                     slots.append("DEFAULT")
             groups.append(f"({', '.join(slots)})")
-
-        sql = f"INSERT INTO {self._table} ({', '.join(cols)}) VALUES {', '.join(groups)} RETURNING *"
-        rows = await _fetch(conn, sql, params)
-        return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
+        return cols, ", ".join(groups), params
 
     async def _do_update(self, conn) -> PostgRESTResponse:
         update_data = self._payload or {}
@@ -546,7 +644,10 @@ class RPCBuilder:
             vals = [self._params[k] for k in keys]
             sql = f"SELECT * FROM {self._func}({args})"
             rows = await _fetch(conn, sql, vals)
-            return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
+            data = [_serialize_row(r) for r in rows]
+            if data and await _returns_scalar(conn, self._func):
+                return PostgRESTResponse(data=next(iter(data[0].values())))
+            return PostgRESTResponse(data=data)
 
 
 # ---------------------------------------------------------------------------

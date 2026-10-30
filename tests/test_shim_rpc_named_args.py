@@ -1,4 +1,7 @@
-"""Live-DB test: the shim binds RPC parameters by name, as PostgREST does."""
+"""Live-DB test: the shim binds RPC parameters by name, as PostgREST does.
+
+These functions return a scalar, which PostgREST returns as the bare value.
+"""
 
 from __future__ import annotations
 
@@ -30,22 +33,22 @@ def joiner():
 def test_params_bind_by_name_not_dict_order(joiner):
     resp = get_admin_client().rpc(joiner, {"p_second": "b", "p_first": "a"}).execute()
 
-    assert resp.data == [{joiner: "a-b"}]
+    assert resp.data == "a-b"
 
 
 def test_omitted_params_take_their_defaults(joiner):
     resp = get_admin_client().rpc(joiner, {"p_sep": "+", "p_second": "b", "p_first": "a"}).execute()
-    assert resp.data == [{joiner: "a+b"}]
+    assert resp.data == "a+b"
 
     resp = get_admin_client().rpc(joiner, {"p_first": "a", "p_second": "b"}).execute()
-    assert resp.data == [{joiner: "a-b"}]
+    assert resp.data == "a-b"
 
 
 def test_no_params_calls_with_empty_argument_list():
     resp = get_admin_client().rpc("now", {}).execute()
 
-    assert len(resp.data) == 1
+    assert isinstance(resp.data, str) and resp.data[:4].isdigit()
 
 
 def test_float_results_stay_numbers():
-    assert get_admin_client().rpc("pi", {}).execute().data == [{"pi": 3.141592653589793}]
+    assert get_admin_client().rpc("pi", {}).execute().data == 3.141592653589793

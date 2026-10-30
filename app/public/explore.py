@@ -68,11 +68,11 @@ async def _enrich_with_authors(shares: list[dict]) -> list[dict]:
     try:
         resp = await asyncio.to_thread(
             lambda: client.table("user_profiles")
-            .select("id, display_name, avatar_url")
-            .in_("id", user_ids)
+            .select("user_id, display_name, avatar_url")
+            .in_("user_id", user_ids)
             .execute()
         )
-        profiles = {p["id"]: p for p in (resp.data or [])}
+        profiles = {p["user_id"]: p for p in (resp.data or [])}
     except Exception:
         logger.warning("Failed to fetch user profiles for explore", exc_info=True)
         profiles = {}

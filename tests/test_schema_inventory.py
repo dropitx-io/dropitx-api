@@ -3,7 +3,7 @@ must exist in a database built from infra/init/*.sql.
 
 Static side: an AST walk over app/ and core/ finds every `.table("t")` and
 `.rpc("fn", {...})` call and follows its builder chain:
-  - select("a, b, t!fk(c, d)")    -> main-table columns, the join key, nested columns
+  - select("a, b, t!fk(c, d)")    -> main-table columns, the embed (join), nested columns
   - insert/upsert/update(payload)  -> payload keys
   - eq/neq/.../in_/is_/not_.<op>   -> filter column
   - order(col, foreign_table=t)    -> sort column
@@ -16,6 +16,11 @@ with its file:line, so a new call shape is caught rather than skipped.
 
 Live side: information_schema.columns (tables and views) and pg_proc on the
 CI database, which local-ci and CI build fresh from infra/init.
+
+Key types: an embed is resolved with the shim's own rule (core.db.embed_join) and
+its two join columns must have the same type. A filter whose value expression names
+a Firebase uid (`user_id`, `uid`, `user.id`, ...) must not compare a uuid column:
+uids are TEXT, so `user_profiles.id` (UUID) is never the column to match them on.
 """
 
 from __future__ import annotations
@@ -23,10 +28,12 @@ from __future__ import annotations
 import ast
 import re
 import textwrap
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
+
+from core.db import _parse_select_columns, embed_join
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE_DIRS = ("app", "core")
@@ -49,6 +56,14 @@ class ColumnRef:
 
 
 @dataclass(frozen=True)
+class JoinRef:
+    table: str
+    foreign: str
+    hint: str | None
+    where: str
+
+
+@dataclass(frozen=True)
 class RpcRef:
     function: str
     args: tuple[str, ...]
@@ -60,6 +75,8 @@ class Inventory:
     columns: set[ColumnRef]
     rpcs: set[RpcRef]
     unresolved: list[str]
+    joins: set[JoinRef] = field(default_factory=set)
+    uid_filters: set[ColumnRef] = field(default_factory=set)  # column compared with a uid value
 
 
 class Unresolved(Exception):
@@ -70,26 +87,21 @@ class Unresolved(Exception):
 # Static extraction
 # ---------------------------------------------------------------------------
 
-_SPLIT_TOP_LEVEL = re.compile(r",\s*(?![^()]*\))")
-_NESTED = re.compile(r"^(\w+)(?:!(\w+))?\((.+)\)$")
+# A filter value expression that carries a Firebase uid.
+_UID_VALUE = re.compile(r"\b(user_ids?|uids?|invited_by|owner_id|shared_by)\b|\buser\.id\b")
 
 
-def _select_refs(table: str, spec: str, where: str) -> set[ColumnRef]:
-    """Columns a PostgREST select string touches, joined the way core/db.py joins them."""
+def _select_refs(table: str, spec: str, where: str) -> tuple[set[ColumnRef], set[JoinRef]]:
+    """Columns and embeds a PostgREST select string touches, parsed as core/db.py parses it."""
+    main, embeds = _parse_select_columns(spec)
     refs = {ColumnRef(table, None, where)}
-    for part in (p.strip() for p in _SPLIT_TOP_LEVEL.split(spec)):
-        if not part or part == "*":
-            continue
-        nested = _NESTED.match(part)
-        if nested:
-            foreign, explicit_fk, inner = nested.groups()
-            fk = explicit_fk or (foreign[:-1] if foreign.endswith("s") else foreign) + "_id"
-            refs.add(ColumnRef(table, fk, where))
-            refs.add(ColumnRef(foreign, "id", where))
-            refs |= _select_refs(foreign, inner, where)
-        else:
-            refs.add(ColumnRef(table, part, where))
-    return refs
+    refs |= {ColumnRef(table, c, where) for c in main if c != "*"}
+    joins = set()
+    for foreign, hint, inner in embeds:
+        joins.add(JoinRef(table, foreign, hint, where))
+        refs.add(ColumnRef(foreign, None, where))
+        refs |= {ColumnRef(foreign, c, where) for c in inner if c != "*"}
+    return refs, joins
 
 
 class _Module:
@@ -296,7 +308,7 @@ class _Module:
             traced |= {call for _, call in calls}
             for method, call in calls:
                 try:
-                    inv.columns |= self._call_refs(table, method, call)
+                    inv.columns |= self._call_refs(table, method, call, inv)
                 except Unresolved as exc:
                     inv.unresolved.append(str(exc))
             var = self._builder_assignment(top)
@@ -323,13 +335,15 @@ class _Module:
                     and node.func.attr == "execute" and node not in traced):
                 inv.unresolved.append(f"{self.where(node)}: .execute() on a builder of unknown origin")
 
-    def _call_refs(self, table: str, method: str, call: ast.Call) -> set[ColumnRef]:
+    def _call_refs(self, table: str, method: str, call: ast.Call, inv: Inventory) -> set[ColumnRef]:
         where = self.where(call)
         if method == "select":
             spec = call.args[0] if call.args else ast.Constant("*")
             refs: set[ColumnRef] = set()
             for s in self.strings(spec):
-                refs |= _select_refs(table, s, where)
+                cols, joins = _select_refs(table, s, where)
+                refs |= cols
+                inv.joins |= joins
             return refs
         if method in PAYLOAD_METHODS:
             refs = {ColumnRef(table, None, where)}
@@ -340,7 +354,10 @@ class _Module:
                         refs |= {ColumnRef(table, c.strip(), where) for c in s.split(",")}
             return refs
         if method in FILTERS:
-            return {ColumnRef(table, c, where) for c in self.strings(call.args[0])}
+            refs = {ColumnRef(table, c, where) for c in self.strings(call.args[0])}
+            if len(call.args) > 1 and _UID_VALUE.search(ast.unparse(call.args[1])):
+                inv.uid_filters |= refs
+            return refs
         if method == "order":
             target = table
             for kw in call.keywords:
@@ -379,7 +396,7 @@ def _catalog():
         pool = await _get_pool()
         async with pool.acquire() as conn:
             cols = await conn.fetch(
-                "SELECT table_schema, table_name, column_name FROM information_schema.columns "
+                "SELECT table_schema, table_name, column_name, data_type FROM information_schema.columns "
                 "WHERE table_schema IN ('public', 'auth')"
             )
             procs = await conn.fetch(
@@ -394,9 +411,9 @@ def _catalog():
             return cols, procs
 
     cols, procs = _run_async(read())
-    tables: dict[tuple[str, str], set[str]] = {}
+    tables: dict[tuple[str, str], dict[str, str]] = {}  # (schema, table) -> column -> data_type
     for r in cols:
-        tables.setdefault((r["table_schema"], r["table_name"]), set()).add(r["column_name"])
+        tables.setdefault((r["table_schema"], r["table_name"]), {})[r["column_name"]] = r["data_type"]
     functions: dict[str, list[tuple[list[str], int]]] = {}
     for r in procs:
         names, modes = list(r["names"]), list(r["modes"])
@@ -417,6 +434,28 @@ def find_mismatches(inv: Inventory, tables, functions) -> list[str]:
         else:
             continue
         missing.setdefault(key, set()).add(ref.where)
+
+    for ref in inv.joins:
+        base, foreign = tables.get(_split_table(ref.table)), tables.get(_split_table(ref.foreign))
+        if base is None or foreign is None:
+            continue  # reported as a missing table above
+        try:
+            _, base_col, foreign_col = embed_join(ref.table, ref.foreign, ref.hint, base, foreign)
+        except ValueError as exc:
+            key = f"embed {ref.foreign} in {ref.table}: {exc}"
+        else:
+            types = (base.get(base_col), foreign.get(foreign_col))
+            if types[0] is not None and types[0] == types[1]:
+                continue
+            key = (f"embed {ref.foreign} in {ref.table} joins {ref.table}.{base_col} ({types[0]}) "
+                   f"= {ref.foreign}.{foreign_col} ({types[1]})")
+        missing.setdefault(key, set()).add(ref.where)
+
+    for ref in inv.uid_filters:
+        cols = tables.get(_split_table(ref.table)) or {}
+        if cols.get(ref.column) == "uuid":
+            key = f"uid value compared with uuid column {ref.table}.{ref.column}"
+            missing.setdefault(key, set()).add(ref.where)
 
     for ref in inv.rpcs:
         overloads = functions.get(ref.function)
@@ -448,7 +487,7 @@ def test_code_references_exist_in_infra_init_schema():
     inv = build_inventory(_source_files())
     tables, functions = _catalog()
     mismatches = find_mismatches(inv, tables, functions)
-    assert not mismatches, "Referenced by app code but missing from infra/init:\n" + "\n".join(mismatches)
+    assert not mismatches, "Referenced by app code but missing from, or mistyped against, infra/init:\n" + "\n".join(mismatches)
 
 
 _SAMPLE = textwrap.dedent('''
@@ -486,13 +525,46 @@ def test_extractor_follows_variables_lambdas_and_comprehensions(tmp_path):
 
     got = {(r.table, r.column) for r in inv.columns}
     assert got == {
-        ("things", None), ("things", "owner_id"), ("owners", None), ("owners", "id"), ("owners", "name"),
+        ("things", None), ("owners", None), ("owners", "name"),
         ("things", "gone_at"), ("things", "kind"), ("things", "created_at"), ("things", "size"),
         ("things", "a"), ("things", "b"), ("parts", None), ("parts", "c"), ("parts", "d"),
         ("things", "e"), ("things", "f"), ("things", "g"), ("things", "id"),
     }
+    assert {(j.table, j.foreign, j.hint) for j in inv.joins} == {("things", "owners", "owner_id")}
     assert {(r.function, r.args) for r in inv.rpcs} == {("do_it", ("p_x", "p_y"))}
     assert sorted(inv.unresolved) == [
         "sample.py:25: .execute() on a builder of unknown origin",
         "sample.py:5: cannot resolve \"LIST_COLS + ''\" to strings",
+    ]
+
+
+_KEYS_SAMPLE = textwrap.dedent('''
+    def handler(client, share, user, user_ids):
+        client.table("members").select("*, user_profiles!user_id(name), teams(name)").execute()
+        client.table("members").select("*, groups!user_id(name)").execute()
+        client.table("members").select("*, badges(name)").execute()
+        client.table("user_profiles").select("name").in_("id", user_ids).execute()
+        client.table("user_profiles").select("name").not_.eq("id", user.id).execute()
+        client.table("user_profiles").select("name").eq("user_id", share["user_id"]).execute()
+        client.table("teams").select("name").eq("id", share["team_id"]).execute()
+''')
+
+_KEYS_CATALOG = {
+    ("public", "members"): {"id": "uuid", "user_id": "text", "team_id": "uuid"},
+    ("public", "user_profiles"): {"id": "uuid", "user_id": "text", "name": "text"},
+    ("public", "teams"): {"id": "uuid", "name": "text"},
+    ("public", "groups"): {"id": "uuid", "name": "text"},
+    ("public", "badges"): {"id": "uuid", "name": "text"},
+}
+
+
+def test_joins_and_uid_filters_must_compare_same_typed_keys(tmp_path):
+    path = tmp_path / "keys.py"
+    path.write_text(_KEYS_SAMPLE)
+    inv = build_inventory([path], root=tmp_path)
+
+    assert find_mismatches(inv, _KEYS_CATALOG, {}) == [
+        "embed badges in members: select spec: no column relates members to badges  <- keys.py:5",
+        "embed groups in members joins members.user_id (text) = groups.id (uuid)  <- keys.py:4",
+        "uid value compared with uuid column user_profiles.id  <- keys.py:6, keys.py:7",
     ]
