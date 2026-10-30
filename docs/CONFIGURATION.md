@@ -10,7 +10,7 @@ All runtime configuration for the DropItX API is supplied via environment variab
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `FIREBASE_PROJECT_ID` | **Yes** | — | Firebase project ID, used to verify the `aud`/`iss` claims of incoming ID tokens against Google's certs. |
+| `FIREBASE_PROJECT_ID` | **Yes** | — | Firebase project ID, used to verify the `aud`/`iss` claims of incoming Firebase ID tokens and session cookies against Google's certs. |
 | `STORAGE_PUBLIC_URL` | No | `http://localhost:9000` | Browser-facing base URL of the object store. Public asset URLs (editor images, thumbnails) are `{STORAGE_PUBLIC_URL}/{bucket}/{key}`; only keys under `html-files/public/` are anonymously readable. |
 | `SUPABASE_ANON_KEY` | **Yes** | — | Supabase anon/public key. Used by the base client (`core/supabase.py`) for user-context and anonymous calls where Row-Level Security applies. |
 | `SUPABASE_SERVICE_ROLE_KEY` | **Yes** | — | Supabase service-role key. Bypasses RLS. Used by `get_admin_client()` for internal/admin operations. Keep secret. |
@@ -117,7 +117,7 @@ Configured by [`core/logging_config.py`](../core/logging_config.py) at import ti
 - `get_admin_client()` — new client created with `SUPABASE_SERVICE_ROLE_KEY`; bypasses RLS. Used by most routes and by the rate limiter.
 - `get_anon_client()` — the cached base client (anon key, no user context) for public endpoints.
 
-JWT verification (`core/security.py::verify_firebase_jwt`) fetches and caches Google's x509 signing certs (Firebase ID token verification) for the TTL defined by `_CERTS_TTL` (1 hour), refetching once on a `kid` miss to survive key rotation. It is controlled by `FIREBASE_PROJECT_ID` (verified as the token's `aud`/`iss`), not by `SUPABASE_URL`.
+JWT verification (`core/security.py::verify_firebase_jwt`) accepts Firebase ID tokens (issuer `https://securetoken.google.com/<project>`) and Firebase session cookies (issuer `https://session.firebase.google.com/<project>`), choosing the cert set by the token's unverified `iss` claim and rejecting any other issuer. Each kind has its own cache of Google's x509 signing certs for the TTL defined by `_CERTS_TTL` (1 hour), refetched once on a `kid` miss to survive key rotation. It is controlled by `FIREBASE_PROJECT_ID` (verified as the token's `aud`/`iss`), not by `SUPABASE_URL`.
 
 ## Rate limiting
 

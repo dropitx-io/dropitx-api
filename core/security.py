@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import bcrypt
@@ -13,54 +14,92 @@ from jose import jwt, JWTError, JWSError
 from core.config import settings
 
 # ---------------------------------------------------------------------------
-# Firebase ID token verification (public x509 certs, cached)
+# Firebase ID token and session cookie verification (public x509 certs, cached)
 # ---------------------------------------------------------------------------
 
-_FIREBASE_CERTS_URL = (
-    "https://www.googleapis.com/robot/v1/metadata/x509/"
-    "securetoken@system.gserviceaccount.com"
-)
-_FIREBASE_ISSUER_PREFIX = "https://securetoken.google.com/"
-
-_CERTS_CACHE: dict[str, str] | None = None
-_CERTS_EXPIRES: float = 0.0
 _CERTS_TTL = 3600  # 1 hour; refetched on a kid miss to survive key rotation
+_CLOCK_SKEW_SECONDS = 60
 
 
-def _fetch_firebase_certs(force: bool = False) -> dict[str, str]:
-    """Fetch and cache Firebase's public x509 signing certs, keyed by kid."""
-    global _CERTS_CACHE, _CERTS_EXPIRES
+@dataclass
+class _TokenKind:
+    """A kind of Firebase JWT we trust: its issuer, signing keys and cert cache."""
 
+    name: str
+    issuer_prefix: str
+    certs_url: str
+    certs: dict[str, str] | None = None
+    certs_expire_at: float = 0.0
+
+
+# The unverified `iss` claim only picks the entry whose keys verify the
+# signature. The signature plus the exact verified `iss`/`aud` authorize.
+_TOKEN_KINDS = (
+    _TokenKind(
+        name="ID token",
+        issuer_prefix="https://securetoken.google.com/",
+        certs_url=(
+            "https://www.googleapis.com/robot/v1/metadata/x509/"
+            "securetoken@system.gserviceaccount.com"
+        ),
+    ),
+    _TokenKind(
+        name="session cookie",
+        issuer_prefix="https://session.firebase.google.com/",
+        certs_url="https://www.googleapis.com/identitytoolkit/v3/relyingparty/publicKeys",
+    ),
+)
+
+
+def _fetch_certs(kind: _TokenKind, force: bool = False) -> dict[str, str]:
+    """Fetch and cache a kind's public x509 signing certs, keyed by kid."""
     now = time.time()
-    if not force and _CERTS_CACHE is not None and now < _CERTS_EXPIRES:
-        return _CERTS_CACHE
+    if not force and kind.certs is not None and now < kind.certs_expire_at:
+        return kind.certs
 
     import httpx
 
-    resp = httpx.get(_FIREBASE_CERTS_URL, timeout=10)
+    resp = httpx.get(kind.certs_url, timeout=10)
     resp.raise_for_status()
-    _CERTS_CACHE = resp.json()
-    _CERTS_EXPIRES = now + _CERTS_TTL
-    return _CERTS_CACHE
+    kind.certs = resp.json()
+    kind.certs_expire_at = now + _CERTS_TTL
+    return kind.certs
 
 
-def _cert_for_kid(kid: str) -> str:
+def _cert_for_kid(kind: _TokenKind, kid: str) -> str:
     """PEM cert for a kid, refetching once on a miss to handle key rotation."""
-    certs = _fetch_firebase_certs()
+    certs = _fetch_certs(kind)
     if kid not in certs:
-        certs = _fetch_firebase_certs(force=True)
+        certs = _fetch_certs(kind, force=True)
     cert = certs.get(kid)
     if not cert:
         raise ValueError(f"No matching Firebase signing cert for kid={kid}")
     return cert
 
 
-def verify_firebase_jwt(token: str) -> dict:
-    """Verify a Firebase ID token and return its claims.
+def _kind_for_issuer(issuer: object) -> _TokenKind:
+    if isinstance(issuer, str):
+        for kind in _TOKEN_KINDS:
+            if issuer.startswith(kind.issuer_prefix):
+                return kind
+    raise ValueError("Untrusted token issuer")
 
-    Validates the RS256 signature against Firebase's public certs plus the
-    audience/issuer for the configured project. Returns a dict with at least
-    'sub' (the Firebase uid). Raises ValueError on any invalid/expired token.
+
+def _require_past_time(payload: dict, claim: str) -> None:
+    value = payload.get(claim)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"Token missing or invalid {claim!r} claim")
+    if value > time.time() + _CLOCK_SKEW_SECONDS:
+        raise ValueError(f"Token {claim!r} is in the future")
+
+
+def verify_firebase_jwt(token: str) -> dict:
+    """Verify a Firebase ID token or session cookie and return its claims.
+
+    Validates the RS256 signature against the public certs for the token's
+    kind plus the audience/issuer for the configured project, and the
+    exp/iat/auth_time/sub claims. Returns a dict with at least 'sub' (the
+    Firebase uid). Raises ValueError on any invalid/expired token.
     """
     project_id = settings.firebase_project_id
     if not project_id:
@@ -74,18 +113,21 @@ def verify_firebase_jwt(token: str) -> dict:
         if not kid:
             raise ValueError("Token header missing 'kid'")
 
-        cert = _cert_for_kid(kid)
+        kind = _kind_for_issuer(jwt.get_unverified_claims(token).get("iss"))
+        cert = _cert_for_kid(kind, kid)
 
         payload = jwt.decode(
             token,
             cert,
             algorithms=["RS256"],
             audience=project_id,
-            issuer=f"{_FIREBASE_ISSUER_PREFIX}{project_id}",
+            issuer=f"{kind.issuer_prefix}{project_id}",
         )
     except (JWTError, JWSError) as exc:
-        raise ValueError(f"Invalid Firebase ID token: {exc}") from exc
+        raise ValueError(f"Invalid Firebase token: {exc}") from exc
 
+    _require_past_time(payload, "iat")
+    _require_past_time(payload, "auth_time")
     if not payload.get("sub"):
         raise ValueError("Token missing 'sub' (uid) claim")
     return payload
