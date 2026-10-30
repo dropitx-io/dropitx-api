@@ -40,7 +40,7 @@ supabase db push
 
 Migrations create:
 - **Tables**: shares, api_keys, teams, team_members, team_invitations, team_events, team_shares, share_views, share_revisions, share_comments, share_groups, custom_domains, file_requests, profiles, etc.
-- **RPCs**: check_rate_limit, search_shares, create_team_invite, accept_team_invite, decline_team_invite, change_team_member_role, remove_team_member, increment_share_views, check_download_limit
+- **RPCs**: check_rate_limit, search_shares, create_team_invite, accept_team_invite, decline_team_invite, change_team_member_role, remove_team_member, record_share_view, check_download_limit
 - **Indexes**: On slug, user_id, team_id, created_at for performance
 
 ### 3. Configure Auth Settings

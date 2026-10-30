@@ -147,15 +147,12 @@ class TestPublicEndpoints:
     @pytest.mark.asyncio
     async def test_analytics_track_missing_body(self, client):
         resp = await client.post("/api/analytics/track", json={})
-        assert resp.status_code == 422  # tracking_token, share_id required
+        assert resp.status_code == 422  # slug required
 
     @pytest.mark.asyncio
     async def test_analytics_track_valid(self, client):
-        resp = await client.post("/api/analytics/track", json={
-            "tracking_token": "tok_test123",
-            "share_id": "00000000-0000-0000-0000-000000000000",
-        })
-        assert resp.status_code in (200, 500)  # always 200 per spec, or 500 if DB down
+        resp = await client.post("/api/analytics/track", json={"slug": FAKE_SLUG})
+        assert resp.status_code == 204
 
     @pytest.mark.asyncio
     async def test_share_content_not_found(self, client):

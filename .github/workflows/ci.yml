@@ -68,10 +68,10 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio
 
-      - name: Apply schema (mirrors compose initdb mount)
+      - name: Apply schema (every infra/init/*.sql in lexical order, as the compose initdb mount does)
         run: |
           docker run --rm --network host -v "$PWD/infra/init:/init:ro" -e PGPASSWORD=dropitx_local_dev postgres:16-alpine \
-            sh -c 'psql -v ON_ERROR_STOP=1 -h localhost -U dropitx -d dropitx -f /init/01_schema.sql -f /init/02_rpc_functions.sql'
+            sh -c 'set -e; for f in $(ls /init/*.sql | sort); do psql -v ON_ERROR_STOP=1 -h localhost -U dropitx -d dropitx -f "$f"; done'
 
       - name: Create storage buckets (mirrors compose createbuckets service)
         run: |

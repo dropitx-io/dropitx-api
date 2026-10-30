@@ -22,6 +22,7 @@ import asyncio
 import json
 import logging
 import threading
+import uuid
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -109,7 +110,7 @@ def _serialize_row(row) -> dict:
     for key, val in dict(row).items():
         if hasattr(val, "isoformat"):
             out[key] = val.isoformat()
-        elif hasattr(val, "hex") and not isinstance(val, (str, bytes)):
+        elif isinstance(val, uuid.UUID):
             out[key] = str(val)
         elif isinstance(val, list):
             out[key] = list(val)
@@ -538,10 +539,12 @@ class RPCBuilder:
     async def _run(self) -> PostgRESTResponse:
         pool = await _get_pool()
         async with pool.acquire() as conn:
+            # Named notation, as PostgREST binds: dict order is irrelevant and
+            # omitted parameters take their SQL defaults.
             keys = list(self._params.keys())
-            placeholders = ", ".join(f"${i+1}" for i in range(len(keys)))
+            args = ", ".join(f"{k} => ${i+1}" for i, k in enumerate(keys))
             vals = [self._params[k] for k in keys]
-            sql = f"SELECT * FROM {self._func}({placeholders})"
+            sql = f"SELECT * FROM {self._func}({args})"
             rows = await _fetch(conn, sql, vals)
             return PostgRESTResponse(data=[_serialize_row(r) for r in rows])
 

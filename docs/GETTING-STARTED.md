@@ -12,7 +12,7 @@ Before you begin, you need:
 - **pip** — comes with Python; used to install [`requirements.txt`](../requirements.txt).
 - **A Supabase project** with Auth, Postgres, and Storage enabled. The API expects:
   - Two Storage buckets: `html-files` and `shares`.
-  - The Postgres RPCs listed in [`README.md`](../README.md#deployment) (`check_rate_limit`, `search_shares`, `create_team_invite`, `accept_team_invite`, `decline_team_invite`, `change_team_member_role`, `remove_team_member`, `increment_share_views`).
+  - The Postgres RPCs listed in [`README.md`](../README.md#deployment) (`check_rate_limit`, `search_shares`, `create_team_invite`, `accept_team_invite`, `decline_team_invite`, `change_team_member_role`, `remove_team_member`, `record_share_view`).
 - **Your Supabase project URL and keys** — project URL, anon key, and service-role key, available in your Supabase dashboard.
 
 No Node.js, Docker, or Redis is required for local development.

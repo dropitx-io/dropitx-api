@@ -60,7 +60,7 @@ For a comprehensive API reference (90+ endpoints across health, documents, keys,
 
 ### Schema / migrations — three directories, different roles
 
-- **`infra/init/`** — `01_schema.sql` + `02_rpc_functions.sql`, mounted into the local Postgres container's `docker-entrypoint-initdb.d`. This is the source of truth for a fresh local DB and runs automatically on first `docker compose up -d`.
+- **`infra/init/`** — `01_schema.sql`, `02_rpc_functions.sql`, `03_analytics.sql` (applied in lexical order), mounted into the local Postgres container's `docker-entrypoint-initdb.d`. This is the source of truth for a fresh local DB and runs automatically on first `docker compose up -d`.
 - **`supabase/migrations/`** — the original Supabase-cloud schema history (base schema + feature migrations), from before the local-Postgres migration.
 - **`migrations/`** — later incremental SQL patches (encryption columns, burn-after-reading, revisions, custom domains, etc.) layered on top of either backend.
 - When adding a schema change: update `infra/init/` (or add a new file there) for local dev, and check whether it also needs mirroring for the Supabase-cloud path (Auth still lives there).

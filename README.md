@@ -114,7 +114,7 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | `POST` | `/api/shares/{slug}/set-password` | Set or clear share password |
 | `POST` | `/api/shares/{slug}/encrypt` | Encrypt share with password |
 | `POST` | `/api/shares/{slug}/reencrypt` | Re-encrypt with new password |
-| `POST` | `/api/analytics/track` | View tracking (always returns 200) |
+| `POST` | `/api/analytics/track` | Record one share view (`{slug, referrer?, is_embed?}`; always 204 unless rate-limited) |
 | `GET` | `/api/oembed?url=` | oEmbed discovery for embeds |
 | `POST` | `/api/encryption/generate-key` | Generate encryption key bundle |
 | `POST` | `/api/requests/{slug}/upload` | Public upload to request link |
@@ -227,7 +227,7 @@ Blueprint included in `render.yaml`. Connect repo, Render auto-detects config. S
 - Python 3.12+
 - Supabase project with Auth, Postgres, and Storage configured
 - Storage buckets: `html-files`, `shares`
-- Required Postgres RPCs: `check_rate_limit`, `search_shares`, `create_team_invite`, `accept_team_invite`, `decline_team_invite`, `change_team_member_role`, `remove_team_member`, `increment_share_views`
+- Required Postgres RPCs: `check_rate_limit`, `search_shares`, `create_team_invite`, `accept_team_invite`, `decline_team_invite`, `change_team_member_role`, `remove_team_member`, `record_share_view`
 
 ## Project Structure
 
