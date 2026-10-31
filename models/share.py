@@ -100,6 +100,7 @@ class GroupFile(BaseModel):
     file_size: int | None = None
     download_count: int = 0
     max_downloads: int | None = None
+    has_password: bool = False
 
     @classmethod
     def from_row(cls, row: dict) -> GroupFile:
@@ -110,6 +111,7 @@ class GroupFile(BaseModel):
             file_size=row.get("file_size"),
             download_count=row.get("download_count") or 0,
             max_downloads=row.get("max_downloads"),
+            has_password=bool(row.get("password_hash")),
         )
 
 
@@ -131,6 +133,7 @@ class ShareMeta(BaseModel):
     burned: bool = False
     encrypted: bool = False
     is_owner: bool = False
+    has_owner: bool = False
     group_id: str | None = None
     group_files: list[GroupFile] = []
 
@@ -155,6 +158,7 @@ class ShareMeta(BaseModel):
             burned=bool(row.get("burned")),
             encrypted=bool(row.get("encrypted")),
             is_owner=is_owner,
+            has_owner=bool(row.get("user_id")),
             group_id=row.get("group_id"),
             group_files=group_files or [],
         )

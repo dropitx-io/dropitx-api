@@ -5,15 +5,15 @@ Runs against the real Postgres + MinIO from CI. Only authentication is overridde
 
 from __future__ import annotations
 
-import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app.dependencies import User
+from app.dependencies import get_optional_claims
 from app.main import app
+from core.rate_limit import RateLimitResult
 from core.security import hash_password
 from core.supabase import get_admin_client
 from tests.test_share_access_control import PRIVATE_BODY, _act_as, _Seed, _walk_keys
@@ -33,6 +33,13 @@ def seed():
     s = _Seed()
     yield s
     s.cleanup()
+
+
+def _claims_as(email: str | None, *, verified: bool) -> None:
+    """Present the caller as a signed-in Firebase user with these token claims."""
+    app.dependency_overrides[get_optional_claims] = lambda: {
+        "sub": f"claims-{uuid.uuid4().hex}", "email": email, "email_verified": verified,
+    }
 
 
 def _past() -> str:
@@ -83,6 +90,19 @@ class TestShareMeta:
         assert not SECRET_KEYS & set(_walk_keys(body))
         assert BODY not in resp.text
         assert "user_id" not in body
+
+    def test_has_owner_tells_owned_shares_from_anonymous_uploads(self, client, seed):
+        owner = seed.user()
+        owned = seed.share(owner, is_private=False)
+        orphan = seed.share(owner, is_private=False, user_id=None)
+        _act_as(None)
+
+        owned_body = client.get(f"/api/shares/{owned['slug']}").json()
+        orphan_body = client.get(f"/api/shares/{orphan['slug']}").json()
+
+        assert owned_body["has_owner"] is True and owned_body["is_owner"] is False
+        assert orphan_body["has_owner"] is False and orphan_body["is_owner"] is False
+        assert owner.id not in str(owned_body)
 
     def test_owner_is_flagged_and_other_signed_in_user_is_not(self, client, seed):
         owner, other = seed.user(), seed.user()
@@ -142,8 +162,8 @@ class TestShareMeta:
         first = seed.share(owner, is_private=False, group_id=group, file_size=10)
         second = seed.share(owner, is_private=False, group_id=group, file_size=20, max_downloads=3)
         seed.share(owner, is_private=True, group_id=group)
-        seed.share(owner, is_private=False, group_id=group, password_hash=hash_password("pw"))
         seed.share(owner, is_private=False, group_id=group, expires_at=_past())
+        seed.share(owner, is_private=False, group_id=group, burned=True)
 
         _act_as(other)
         resp = client.get(f"/api/shares/{first['slug']}")
@@ -155,11 +175,29 @@ class TestShareMeta:
         listed = body["group_files"][1]
         assert set(listed) == {
             "slug", "filename", "mime_type", "file_size", "download_count", "max_downloads",
+            "has_password",
         }
         assert listed["file_size"] == 20 and listed["max_downloads"] == 3
         assert not SECRET_KEYS & set(_walk_keys(body))
 
-    def test_group_owner_sees_private_and_password_siblings(self, client, seed):
+    def test_password_sibling_is_listed_with_has_password(self, client, seed):
+        owner, other = seed.user(), seed.user()
+        group = seed.group(owner)
+        open_file = seed.share(owner, is_private=False, group_id=group)
+        pw_hash = hash_password("pw")
+        locked = seed.share(owner, is_private=False, group_id=group, password_hash=pw_hash)
+        seed.share(owner, is_private=False, group_id=group, burned=True)
+
+        _act_as(other)
+        resp = client.get(f"/api/shares/{open_file['slug']}")
+
+        by_slug = {f["slug"]: f for f in resp.json()["group_files"]}
+        assert set(by_slug) == {open_file["slug"], locked["slug"]}
+        assert by_slug[locked["slug"]]["has_password"] is True
+        assert by_slug[open_file["slug"]]["has_password"] is False
+        assert pw_hash not in resp.text
+
+    def test_group_owner_sees_private_siblings_too(self, client, seed):
         owner = seed.user()
         group = seed.group(owner)
         public = seed.share(owner, is_private=False, group_id=group)
@@ -204,7 +242,6 @@ class TestShareMeta:
 
         for _ in range(2):
             assert client.get(f"/api/shares/{share['slug']}").status_code == 200
-        time.sleep(0.5)
 
         assert _view_count(seed.db, share["id"]) == 0
         assert _view_rows(seed.db, share["id"]) == 0
@@ -222,6 +259,19 @@ class TestShareMeta:
         content = client.get(f"/api/shares/{share['slug']}/content")
         assert content.status_code == 200
         assert content.json()["content"] == BODY
+
+    def test_rate_limited_caller_gets_429_before_any_lookup(self, client, seed, monkeypatch):
+        share = seed.share(seed.user(), is_private=False)
+        _act_as(None)
+        monkeypatch.setattr(
+            "app.public.shares.check_share_meta_rate_limit",
+            lambda ip: RateLimitResult(success=False, limit=300, remaining=0, reset=30),
+        )
+
+        resp = client.get(f"/api/shares/{share['slug']}")
+
+        assert resp.status_code == 429
+        assert resp.headers["retry-after"] == "30"
 
     def test_neighbouring_share_routes_are_not_shadowed(self, client, seed):
         owner = seed.user()
@@ -298,18 +348,33 @@ class TestInviteLookup:
         assert invite["token"] not in resp.text
         assert not {"token", "email", "invited_by", "team_id", "id"} & set(body)
 
-    def test_invitee_email_is_returned_only_when_the_caller_email_matches(self, client, invites, seed):
+    def test_invitee_email_is_returned_only_to_a_verified_matching_caller(self, client, invites):
         invite = invites.invite()
 
-        matching = seed.user()
-        seed.db.table("auth.users").update({"email": invite["email"]}).eq("id", matching.id).execute()
-        _act_as(User(id=matching.id, email=invite["email"].upper()))
+        _act_as(None)
+        _claims_as(f"  {invite['email'].upper()} ", verified=True)
         body = client.get(f"/api/invites/{invite['token']}").json()
         assert body["invitee_email"] == invite["email"]
         assert body["email_matches"] is True
 
-        _act_as(seed.user())
+        _act_as(None)
+        _claims_as(f"other-{uuid.uuid4().hex[:8]}@example.com", verified=True)
         resp = client.get(f"/api/invites/{invite['token']}")
+        assert resp.json()["email_matches"] is False
+        assert resp.json().get("invitee_email") is None
+        assert invite["email"] not in resp.text
+
+    @pytest.mark.parametrize("claim", [False, None])
+    def test_unverified_matching_email_is_not_a_match(self, client, invites, claim):
+        invite = invites.invite()
+        _act_as(None)
+        app.dependency_overrides[get_optional_claims] = lambda: {
+            "sub": "u-unverified", "email": invite["email"], "email_verified": claim,
+        }
+
+        resp = client.get(f"/api/invites/{invite['token']}")
+
+        assert resp.status_code == 200
         assert resp.json()["email_matches"] is False
         assert resp.json().get("invitee_email") is None
         assert invite["email"] not in resp.text

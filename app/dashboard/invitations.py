@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.dependencies import User, get_current_user, get_optional_user
+from app.dependencies import User, get_current_user, get_optional_claims
 from core.supabase import get_admin_client
 from models.team import InviteLookup
 
@@ -43,12 +43,12 @@ async def list_invitations(user: User = Depends(get_current_user)):
 
 
 @invite_actions_router.get("/invites/{token}", response_model=InviteLookup, tags=["Invitations"])
-async def lookup_invite(token: str, user: User | None = Depends(get_optional_user)):
+async def lookup_invite(token: str, claims: dict | None = Depends(get_optional_claims)):
     """Look up an invite by its token for the accept page. Read-only.
 
     The token is the credential, so the team, role and inviter name are shown to any
-    holder. The invitee's address is returned only to a signed-in caller whose own
-    address matches it. 404 for an unknown token, 410 for a pending invite past its expiry.
+    holder. The invitee's address is returned only to a signed-in caller whose verified
+    Firebase token email matches it (``email_verified`` must be true). 404 for an unknown token, 410 for a pending invite past its expiry.
     """
     client = get_admin_client()
     resp = await asyncio.to_thread(
@@ -71,8 +71,14 @@ async def lookup_invite(token: str, user: User | None = Depends(get_optional_use
 
     team = row.get("teams") or {}
     inviter = row.get("user_profiles") or {}
-    caller_email = (user.email or "").strip().lower() if user else None
-    email_matches = None if user is None else bool(caller_email) and caller_email == row["email"].strip().lower()
+    email_matches = None
+    if claims is not None:
+        caller_email = (claims.get("email") or "").strip().lower()
+        email_matches = (
+            claims.get("email_verified") is True
+            and bool(caller_email)
+            and caller_email == row["email"].strip().lower()
+        )
     return InviteLookup(
         team_name=team.get("name"),
         team_slug=team.get("slug"),

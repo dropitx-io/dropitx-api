@@ -112,3 +112,11 @@ def check_domain_resolve_rate_limit(ip: str) -> RateLimitResult:
 def check_analytics_rate_limit(ip: str) -> RateLimitResult:
     """60 view-tracking pings per minute per IP, apart from the public-read bucket. Fail-open."""
     return _check_rpc(f"analytics:{ip}", max_attempts=60, window_secs=60, fail_open=True)
+
+
+def check_share_meta_rate_limit(ip: str) -> RateLimitResult:
+    """300 share-metadata lookups per minute per IP, apart from the public-read bucket. Fail-open.
+
+    Generous because a server-rendered share page and its unfurlers look metadata up repeatedly.
+    """
+    return _check_rpc(f"share_meta:{ip}", max_attempts=300, window_secs=60, fail_open=True)
