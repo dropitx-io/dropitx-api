@@ -164,6 +164,29 @@ class ShareMeta(BaseModel):
         )
 
 
+class ShareListResponse(BaseModel):
+    """One page of the caller's own shares."""
+    items: list[ShareMeta]
+    total: int
+    page: int
+    limit: int
+
+
+class FavoriteShare(ShareMeta):
+    """A favorited share: its metadata plus when the caller bookmarked it."""
+    favorited_at: datetime
+
+    @classmethod
+    def from_favorite(cls, share: dict, favorited_at: datetime, *, is_owner: bool) -> FavoriteShare:
+        meta = ShareMeta.from_row(share, is_owner=is_owner)
+        return cls(**meta.model_dump(), favorited_at=favorited_at)
+
+
+class FavoriteStatus(BaseModel):
+    """Whether the caller has a share favorited."""
+    favorited: bool
+
+
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------

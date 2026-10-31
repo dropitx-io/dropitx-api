@@ -6,6 +6,7 @@ Registers routes on the same router as teams.py to share the /teams prefix.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
 
@@ -230,7 +231,12 @@ async def list_events(
         .range(offset, offset + limit - 1)
         .execute()
     )
-    return resp.data or []
+    events = resp.data or []
+    for event in events:
+        # The shim returns jsonb as text; the response carries the object.
+        if isinstance(event.get("payload"), str):
+            event["payload"] = json.loads(event["payload"])
+    return events
 
 
 # password_hash is read only to derive has_password and is removed before returning.

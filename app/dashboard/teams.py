@@ -79,12 +79,12 @@ async def create_team(
 
 @router.get("/teams/{slug}", tags=["Teams"])
 async def get_team(slug: str, user: User = Depends(get_current_user)):
-    """Get team details. Must be a member."""
+    """Get team details with the caller's role. Must be a member."""
     team = await resolve_team_by_slug(slug)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    await require_team_member(user.id, team["id"])
-    return team
+    membership = await require_team_member(user.id, team["id"])
+    return {**team, "role": membership["role"]}
 
 
 @router.patch("/teams/{slug}", tags=["Teams"])

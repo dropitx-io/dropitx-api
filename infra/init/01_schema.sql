@@ -263,6 +263,16 @@ CREATE TABLE IF NOT EXISTS share_stars (
 CREATE INDEX IF NOT EXISTS idx_share_stars_share_id ON share_stars(share_id);
 CREATE INDEX IF NOT EXISTS idx_share_stars_user_id ON share_stars(user_id);
 
+-- Dashboard bookmarks (app/v1/favorites.py): one row per user per share.
+CREATE TABLE IF NOT EXISTS favorites (
+    user_id TEXT NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+    share_id UUID NOT NULL REFERENCES shares(id) ON DELETE CASCADE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (user_id, share_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_favorites_share_id ON favorites(share_id);
+
 CREATE TABLE IF NOT EXISTS tags (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT REFERENCES auth.users(id) ON DELETE CASCADE,
