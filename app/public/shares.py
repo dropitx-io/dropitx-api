@@ -164,7 +164,7 @@ async def get_share_content(
 ):
     """View a share's content. Handles:
     - Expiration check (returns 410 if expired)
-    - Password protection (returns 403 with password_protected=true)
+    - Password protection (empty content with password_protected=true; the owner gets the content)
     - Burn-after-reading (deletes after first view)
     - E2E encryption metadata passthrough
     - Download limit enforcement
@@ -183,8 +183,8 @@ async def get_share_content(
     # Check download limit
     _check_download_limit(row)
 
-    # Check password protection
-    if row.get("password_hash"):
+    # Check password protection: only the owner reads a protected share without the password
+    if row.get("password_hash") and not _is_owner(row, user):
         return ShareContentResponse(
             slug=row["slug"],
             filename=row.get("filename"),
@@ -238,7 +238,7 @@ async def get_share_content(
         burn_after_reading=row.get("burn_after_reading", False),
         burned=row.get("burned", False),
         is_private=row.get("is_private", False),
-        password_protected=False,
+        password_protected=bool(row.get("password_hash")),
         language=row.get("language"),
     ).model_dump()
 
@@ -251,7 +251,7 @@ async def get_share_content(
 _SHARE_META_COLUMNS = (
     "id, slug, user_id, filename, title, mime_type, language, file_size, view_count, "
     "created_at, expires_at, is_private, password_hash, burn_after_reading, burned, "
-    "encrypted, group_id"
+    "one_time_download, encrypted, group_id"
 )
 
 
@@ -274,7 +274,7 @@ async def _visible_group_files(row: dict, viewer: User | None) -> list[GroupFile
     resp = await asyncio.to_thread(
         lambda: client.table("shares")
         .select("slug, user_id, filename, mime_type, file_size, download_count, max_downloads, "
-                "is_private, password_hash, burned, expires_at")
+                "is_private, password_hash, burn_after_reading, one_time_download, burned, expires_at")
         .eq("group_id", row["group_id"])
         .order("created_at", desc=False)
         .execute()

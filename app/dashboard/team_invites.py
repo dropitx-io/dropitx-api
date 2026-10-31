@@ -25,6 +25,9 @@ from models.team import TeamRole
 
 logger = logging.getLogger(__name__)
 
+# Roles allowed to read invite tokens in the listing: the role model has no admin
+INVITE_TOKEN_ROLES = frozenset({"owner"})
+
 # Shared router — imported from teams module so all /teams/* routes live on one router
 from app.dashboard.teams import router  # noqa: E402
 
@@ -39,7 +42,7 @@ async def list_invites(slug: str, user: User = Depends(get_current_user)):
     team = await resolve_team_by_slug(slug)
     if not team:
         raise HTTPException(status_code=404, detail="Team not found")
-    await require_team_member(user.id, team["id"])
+    membership = await require_team_member(user.id, team["id"])
 
     client = get_admin_client()
     resp = await asyncio.to_thread(
@@ -48,7 +51,11 @@ async def list_invites(slug: str, user: User = Depends(get_current_user)):
         .eq("team_id", team["id"])
         .execute()
     )
-    return resp.data or []
+    rows = resp.data or []
+    # The token is the credential for accepting an invite: only team owners may see it.
+    if membership["role"] in INVITE_TOKEN_ROLES:
+        return rows
+    return [{key: value for key, value in row.items() if key != "token"} for row in rows]
 
 
 @router.post("/teams/{slug}/invites", status_code=201, tags=["Team Invites"])
