@@ -334,6 +334,41 @@ class TestGroupZipDownload:
         assert resp.status_code == 200
         assert _zip_names(resp) == {s["filename"] for s in shares.values()}
 
+    LIMITED = [
+        {"max_downloads": 1},
+        {"burn_after_reading": True},
+        {"one_time_download": True},
+        {"encrypted": True},
+        {"burned": True},
+    ]
+
+    @pytest.mark.parametrize("limit", LIMITED, ids=lambda limit: next(iter(limit)))
+    def test_anonymous_and_non_owner_zip_omit_shares_with_download_limits(self, client, seed, limit):
+        owner = seed.user()
+        group = seed.group(owner)
+        open_share = seed.share(owner, is_private=False, group_id=group)
+        seed.share(owner, is_private=False, group_id=group, **limit)
+
+        for viewer in (None, seed.user()):
+            act_as(viewer)
+            resp = client.get(f"/api/download/group/{group}", headers=unique_ip())
+
+            assert resp.status_code == 200
+            assert _zip_names(resp) == {open_share["filename"]}
+
+    @pytest.mark.parametrize("limit", LIMITED[:4], ids=lambda limit: next(iter(limit)))
+    def test_owner_zip_keeps_shares_with_download_limits(self, client, seed, limit):
+        owner = seed.user()
+        group = seed.group(owner)
+        open_share = seed.share(owner, is_private=False, group_id=group)
+        limited = seed.share(owner, is_private=False, group_id=group, **limit)
+        act_as(owner)
+
+        resp = client.get(f"/api/download/group/{group}", headers=unique_ip())
+
+        assert resp.status_code == 200
+        assert _zip_names(resp) == {open_share["filename"], limited["filename"]}
+
     def test_group_with_only_hidden_shares_looks_empty(self, client, seed):
         owner = seed.user()
         group = seed.group(owner)
