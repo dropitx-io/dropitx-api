@@ -89,6 +89,18 @@ async def get_optional_user(request: Request) -> User | None:
         return None
 
 
+async def get_optional_claims(request: Request) -> dict | None:
+    """Verified Firebase token claims, or None when the caller is anonymous or the token is bad.
+
+    For routes that need a token claim the local user row does not carry, such as
+    ``email_verified``.
+    """
+    try:
+        return await get_firebase_claims(request)
+    except HTTPException:
+        return None
+
+
 # ---------------------------------------------------------------------------
 # API key-based auth
 # ---------------------------------------------------------------------------

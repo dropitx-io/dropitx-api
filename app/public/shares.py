@@ -12,11 +12,16 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
-from app.public._share_auth import authorize_owner, require_share_visible
-from core.rate_limit import check_password_rate_limit, check_public_read_rate_limit
+from app.public._share_auth import authorize_owner, can_view_share, require_share_visible
+from core.rate_limit import (
+    check_password_rate_limit,
+    check_public_read_rate_limit,
+    check_share_meta_rate_limit,
+)
 from core.security import hash_password, verify_password
 from core.supabase import get_admin_client
 from core.thumbnail import remove_thumbnail
+from models.share import GroupFile, ShareMeta
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +236,96 @@ async def get_share_content(
         password_protected=False,
         language=row.get("language"),
     ).model_dump()
+
+
+# ---------------------------------------------------------------------------
+# GET /shares/{slug} — metadata and access state (no side effects)
+# ---------------------------------------------------------------------------
+
+# Exactly the columns ShareMeta.from_row and the visibility checks read: no content columns.
+_SHARE_META_COLUMNS = (
+    "id, slug, user_id, filename, title, mime_type, language, file_size, view_count, "
+    "created_at, expires_at, is_private, password_hash, burn_after_reading, burned, "
+    "encrypted, group_id"
+)
+
+
+def _is_expired(row: dict) -> bool:
+    expires = row.get("expires_at")
+    if not expires:
+        return False
+    if isinstance(expires, str):
+        expires = datetime.fromisoformat(expires.replace("Z", "+00:00"))
+    return datetime.now(timezone.utc) > expires
+
+
+async def _visible_group_files(row: dict, viewer: User | None) -> list[GroupFile]:
+    """Live siblings of a grouped share that `viewer` may see, oldest first.
+
+    Private siblings need their owner. Password-protected ones are listed with
+    ``has_password`` set: a filename is not content.
+    """
+    client = get_admin_client()
+    resp = await asyncio.to_thread(
+        lambda: client.table("shares")
+        .select("slug, user_id, filename, mime_type, file_size, download_count, max_downloads, "
+                "is_private, password_hash, burned, expires_at")
+        .eq("group_id", row["group_id"])
+        .order("created_at", desc=False)
+        .execute()
+    )
+    files = []
+    for sibling in resp.data or []:
+        if sibling.get("burned") or _is_expired(sibling) or not can_view_share(sibling, viewer):
+            continue
+        files.append(GroupFile.from_row(sibling))
+    return files
+
+
+def _is_owner(row: dict, viewer: User | None) -> bool:
+    return viewer is not None and row.get("user_id") is not None and viewer.id == row["user_id"]
+
+
+@router.get(
+    "/shares/{slug}",
+    response_model=ShareMeta,
+    tags=["Shares"],
+    summary="Get share metadata",
+)
+async def get_share_meta(
+    slug: str,
+    request: Request,
+    user: User | None = Depends(get_optional_user),
+):
+    """Metadata and access state for a share page, embed, OG image or link unfurler.
+
+    Never returns content, the password hash or the delete token, and never counts a
+    view, burns the share or deletes it: it is safe to call any number of times.
+    Private shares are 404 for everyone but the owner; expired shares are 410.
+    """
+    rate = check_share_meta_rate_limit(get_client_ip(request))
+    if not rate.success:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(max(rate.reset, 1))},
+        )
+
+    client = get_admin_client()
+    resp = await asyncio.to_thread(
+        lambda: client.table("shares").select(_SHARE_META_COLUMNS).eq("slug", slug).execute()
+    )
+    rows = resp.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Share not found")
+    row = rows[0]
+
+    require_share_visible(row, user)
+    if _is_expired(row):
+        raise HTTPException(status_code=410, detail="Share has expired")
+
+    group_files = await _visible_group_files(row, user) if row.get("group_id") else []
+    return ShareMeta.from_row(row, is_owner=_is_owner(row, user), group_files=group_files)
 
 
 async def _increment_download_count(share_id: str) -> None:

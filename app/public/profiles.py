@@ -66,7 +66,7 @@ async def get_public_profile(username: str):
     try:
         resp = await asyncio.to_thread(
             lambda: client.table("user_profiles")
-            .select("id, username, display_name, avatar_url, bio, is_public")
+            .select("user_id, username, display_name, avatar_url, bio, is_public")
             .eq("username", username)
             .eq("is_public", True)
             .execute()
@@ -79,7 +79,7 @@ async def get_public_profile(username: str):
         raise HTTPException(status_code=404, detail="Profile not found")
 
     profile = resp.data[0]
-    user_id = profile["id"]
+    user_id = profile["user_id"]
 
     # Get share stats
     try:
@@ -130,7 +130,7 @@ async def list_user_shares(
     try:
         resp = await asyncio.to_thread(
             lambda: client.table("user_profiles")
-            .select("id, is_public")
+            .select("user_id, is_public")
             .eq("username", username)
             .execute()
         )
@@ -145,7 +145,7 @@ async def list_user_shares(
     if not profile.get("is_public"):
         raise HTTPException(status_code=404, detail="Profile is not public")
 
-    user_id = profile["id"]
+    user_id = profile["user_id"]
     offset = (page - 1) * limit
 
     order_col = {

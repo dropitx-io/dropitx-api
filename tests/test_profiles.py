@@ -14,7 +14,7 @@ def client():
 
 
 PROFILE_ROW = {
-    "id": "user-1",
+    "user_id": "user-1",
     "username": "alice",
     "display_name": "Alice",
     "avatar_url": None,

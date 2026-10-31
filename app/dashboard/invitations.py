@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.dependencies import User, get_current_user
+from app.dependencies import User, get_current_user, get_optional_claims
 from core.supabase import get_admin_client
+from models.team import InviteLookup
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,55 @@ async def list_invitations(user: User = Depends(get_current_user)):
         .execute()
     )
     return resp.data or []
+
+
+@invite_actions_router.get("/invites/{token}", response_model=InviteLookup, tags=["Invitations"])
+async def lookup_invite(token: str, claims: dict | None = Depends(get_optional_claims)):
+    """Look up an invite by its token for the accept page. Read-only.
+
+    The token is the credential, so the team, role and inviter name are shown to any
+    holder. The invitee's address is returned only to a signed-in caller whose verified
+    Firebase token email matches it (``email_verified`` must be true). 404 for an unknown token, 410 for a pending invite past its expiry.
+    """
+    client = get_admin_client()
+    resp = await asyncio.to_thread(
+        lambda: client.table("team_invites")
+        .select("role, status, expires_at, email, teams(name, slug), "
+                "user_profiles!invited_by(display_name)")
+        .eq("token", token)
+        .execute()
+    )
+    rows = resp.data or []
+    if not rows:
+        raise HTTPException(status_code=404, detail="Invite not found")
+    row = rows[0]
+
+    expires_at = row["expires_at"]
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    if row["status"] == "pending" and expires_at <= datetime.now(timezone.utc):
+        raise HTTPException(status_code=410, detail="Invite has expired")
+
+    team = row.get("teams") or {}
+    inviter = row.get("user_profiles") or {}
+    email_matches = None
+    if claims is not None:
+        caller_email = (claims.get("email") or "").strip().lower()
+        email_matches = (
+            claims.get("email_verified") is True
+            and bool(caller_email)
+            and caller_email == row["email"].strip().lower()
+        )
+    return InviteLookup(
+        team_name=team.get("name"),
+        team_slug=team.get("slug"),
+        inviter_display_name=inviter.get("display_name"),
+        role=row["role"],
+        status=row["status"],
+        expires_at=expires_at,
+        invitee_email=row["email"] if email_matches else None,
+        email_matches=email_matches,
+    )
 
 
 @invite_actions_router.post("/invite/accept", tags=["Invitations"])
