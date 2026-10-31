@@ -99,6 +99,8 @@ Source: `app/v1/documents.py` (router prefix `/documents`, mounted under `/api/v
 | PATCH | `/api/v1/documents/{slug}` | Update document; saves a revision first. Body `DocumentUpdate`. |
 | DELETE | `/api/v1/documents/{slug}` | Delete document and its storage object (204). |
 
+Team keys (`sht_`): a private or password-protected team share gives the same 404 as a missing document on every route that reads or writes its content (GET, PATCH, revisions, restore), and the listing leaves it out. A team key cannot change a share's privacy or password: a PATCH that sets `is_private` or `password` is refused with 403. Personal keys (`shk_`) are unchanged.
+
 `DocumentCreate` fields: `content` (1–5 MB), `filename?`, `title?`, `is_private`, `encrypted`, `encryption_iv?`, `encryption_salt?`, `burn_after_reading`, `one_time_download`, `expires_in?` (seconds).
 
 ## v1 — API Keys (JWT)
@@ -132,8 +134,8 @@ Sources: `app/dashboard/shares.py`, `app/v1/favorites.py`. Both authenticate wit
 | GET | `/api/dashboard/shares?page=1&limit=20` | The caller's own shares, newest first, private and expired included. `page` >= 1, 1 <= `limit` <= 100 (422 otherwise). Returns `{items, total, page, limit}`. |
 | GET | `/api/dashboard/analytics/top-shares?limit=10` | `{totals: {share_count, total_views, total_size, unique_views, shares_with_views}, top: [{share_id, slug, title, total_views, unique_views}]}`. `totals` cover all the caller's shares (private, expired and burned included; `total_views` sums `shares.view_count`, a missing size counts as 0; `unique_views` and `shares_with_views` count the last 30 calendar days (UTC) of views across all of them). `top` ranks unexpired shares by views in the last 30 days. 1 <= `limit` <= 50 (422 otherwise). Source: `app/dashboard/analytics.py`. |
 | GET | `/api/dashboard/shares/{slug}/analytics?days=30` | Owner only; any other caller gets the same 404 as a missing slug. Returns `{share: {slug, title, filename}, days, summary, timeseries, referrers, geo}`: `summary` = `{total_views, unique_views, views_today, views_7d, avg_daily_views}`, `timeseries` = one `{date, views, unique_views}` per day, zero-filled, oldest first; `referrers` = top 10 `{referrer_source, views}`; `geo` = top 10 `{country_code, views}` (views with no country omitted). 1 <= `days` <= 365 (422 otherwise). |
-| GET | `/api/v1/favorites` | The caller's favorites, newest first: `ShareMeta` plus `favorited_at`. Shares the caller can no longer view are omitted. |
-| GET | `/api/v1/favorites/{share_id}` | `{favorited: bool}`. |
+| GET | `/api/v1/favorites` | The caller's favorites, newest first: `ShareMeta` plus `favorited_at`. Private shares the caller does not own, and burned or expired shares the caller does not own, are omitted. |
+| GET | `/api/v1/favorites/{share_id}` | `{favorited: bool}`; `false` for a non-owned private, burned or expired share. |
 | POST | `/api/v1/favorites/{share_id}` | Favorite a share. Idempotent; returns `{favorited: true}`. A missing share, a malformed id and a private share that is not the caller's all give the same 404. |
 | DELETE | `/api/v1/favorites/{share_id}` | Unfavorite. Idempotent; returns `{favorited: false}`. |
 

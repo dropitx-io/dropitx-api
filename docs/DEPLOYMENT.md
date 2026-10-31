@@ -59,9 +59,7 @@ The Render service is stateless. Before the first deploy, the configured Supabas
 ### Supabase project setup
 
 1. Create a Supabase project with **Auth**, **Postgres**, and **Storage** enabled.
-2. Apply migrations. The repo ships two migration sets:
-   - [`supabase/migrations/`](../supabase/migrations/) — the canonical, Supabase-CLI-ordered set (base schema, competitor features, file requests, schema fixes). Apply with `supabase db push` after `supabase link --project-ref <project-ref>`.
-   - [`migrations/`](../migrations/) — feature-specific SQL files (encryption columns, share files, comments, revisions, custom domains, explore gallery, download-count RPC). If running manually, apply these against the same database.
+2. Apply the database schema. The schema is [`infra/init/*.sql`](../infra/init/), applied in sorted order, once, to an empty Postgres. These scripts are not migrations: re-running them against an existing database is not supported. [`supabase/migrations/`](../supabase/migrations/) and [`migrations/`](../migrations/) are historical and must not be applied.
 3. For auth, create a Firebase project and note its **Project ID** from the Firebase console — set it as `FIREBASE_PROJECT_ID`. JWT verification in [`core/security.py`](../core/security.py) fetches and caches Google's public x509 signing certs for 1 hour (`_CERTS_TTL = 3600`).
 
 ### Storage buckets
@@ -77,7 +75,7 @@ Exactly **two** buckets must exist:
 
 ### Required Postgres RPCs
 
-Migrations must define the following RPCs, called from Python via the Supabase admin client:
+`infra/init/` must define the following RPCs, called from Python via the Supabase admin client:
 
 - `check_rate_limit` — used by [`core/rate_limit.py`](../core/rate_limit.py) for all rate-limit checks.
 - `search_shares` — used by search endpoints.
@@ -94,7 +92,7 @@ Supabase enforces RLS. The app uses three client types (see [`core/supabase.py`]
 - `get_anon_client()` — anon key, no user context; RLS applies for public reads.
 - `get_admin_client()` — service-role key; **bypasses RLS**. Most routes use this.
 
-RLS policies are defined in the migration files (e.g. `001_create_share_files.sql`, `002_create_share_comments.sql`, `004_custom_domains.sql`, `004_explore_gallery.sql` under [`migrations/`](../migrations/), plus the `supabase/migrations/*.sql` set). Apply all migrations so the policies match what the code expects.
+The schema in [`infra/init/`](../infra/init/) defines no RLS policies, so authorization is enforced in the application layer (explicit owner and role checks in the routes). Do not rely on the historical `supabase/migrations/` or `migrations/` policies.
 
 ## Environment setup
 
@@ -185,7 +183,7 @@ Because the service is stateless, Render rollback is the primary mechanism; data
 ## Production checklist
 
 - [ ] Supabase project created; Auth, Postgres, and Storage enabled.
-- [ ] All migrations applied (`supabase/migrations/` and `migrations/`), including the required RPCs.
+- [ ] Schema applied: `infra/init/*.sql` run in sorted order against an empty Postgres, including the required RPCs.
 - [ ] Storage buckets exist: `html-files` (public), `shares` (private).
 - [ ] Render Blueprint created from `render.yaml`.
 - [ ] Five `sync: false` env vars set in Render dashboard (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS`, `FRONTEND_URL`).
