@@ -170,8 +170,8 @@ class TestTeamKeyWrites:
         assert resp.status_code == 404
         assert resp.json() == missing_document_body
 
-    @pytest.mark.parametrize("body", [{"is_private": True}, {"password": "hunter22"}, {"title": "x", "is_private": False}])
-    def test_team_key_cannot_change_privacy_or_password(self, client, seed, body):
+    @pytest.mark.parametrize("body", [{"is_private": True}, {"title": "x", "is_private": False}])
+    def test_team_key_cannot_change_privacy(self, client, seed, body):
         owner, member = seed.user(), seed.user()
         share = seed.share(owner, is_private=False, body=PUBLIC_BODY, title="before")
         _use(_key_for_team(seed, member, share))
@@ -181,6 +181,17 @@ class TestTeamKeyWrites:
         assert resp.status_code == 403
         row = seed.db.table("shares").select("*").eq("id", share["id"]).execute().data[0]
         assert (row["is_private"], row["title"], row["password_hash"]) == (False, "before", None)
+
+    def test_team_key_cannot_set_a_password_through_patch(self, client, seed):
+        owner, member = seed.user(), seed.user()
+        share = seed.share(owner, is_private=False, body=PUBLIC_BODY)
+        _use(_key_for_team(seed, member, share))
+
+        resp = client.patch(f"/api/v1/documents/{share['slug']}", json={"password": "hunter22"})
+
+        assert resp.status_code == 400
+        row = seed.db.table("shares").select("password_hash").eq("id", share["id"]).execute().data[0]
+        assert row["password_hash"] is None
 
     def test_team_key_still_patches_an_open_team_share(self, client, seed):
         owner, member = seed.user(), seed.user()
