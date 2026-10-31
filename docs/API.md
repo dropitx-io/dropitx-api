@@ -127,6 +127,8 @@ Sources: `app/dashboard/shares.py`, `app/v1/favorites.py`. Both authenticate wit
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/dashboard/shares?page=1&limit=20` | The caller's own shares, newest first, private and expired included. `page` >= 1, 1 <= `limit` <= 100 (422 otherwise). Returns `{items, total, page, limit}`. |
+| GET | `/api/dashboard/analytics/top-shares?limit=10` | `{totals: {share_count, total_views, total_size}, top: [{share_id, slug, title, total_views, unique_views}]}`. `totals` cover all the caller's shares (private, expired and burned included; `total_views` sums `shares.view_count`, a missing size counts as 0). `top` ranks unexpired shares by views in the last 30 days. 1 <= `limit` <= 50 (422 otherwise). Source: `app/dashboard/analytics.py`. |
+| GET | `/api/dashboard/shares/{slug}/analytics?days=30` | Owner only; any other caller gets the same 404 as a missing slug. Returns `{share: {slug, title, filename}, days, summary, timeseries, referrers, geo}`: `summary` = `{total_views, unique_views, views_today, views_7d, avg_daily_views}`, `timeseries` = one `{date, views, unique_views}` per day, zero-filled, oldest first; `referrers` = top 10 `{referrer_source, views}`; `geo` = top 10 `{country_code, views}` (views with no country omitted). 1 <= `days` <= 365 (422 otherwise). |
 | GET | `/api/v1/favorites` | The caller's favorites, newest first: `ShareMeta` plus `favorited_at`. Shares the caller can no longer view are omitted. |
 | GET | `/api/v1/favorites/{share_id}` | `{favorited: bool}`. |
 | POST | `/api/v1/favorites/{share_id}` | Favorite a share. Idempotent; returns `{favorited: true}`. A missing share, a malformed id and a private share that is not the caller's all give the same 404. |

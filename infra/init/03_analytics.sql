@@ -156,3 +156,20 @@ CREATE OR REPLACE FUNCTION get_user_top_shares(
     ORDER BY COALESCE(agg.total_views, 0) DESC, s.created_at DESC
     LIMIT p_limit;
 $$;
+
+-- Counts and sizes across every share a user owns: private, expired and burned
+-- included. A share with no recorded size counts as 0 bytes.
+CREATE OR REPLACE FUNCTION get_user_share_totals(
+    p_user_id TEXT
+) RETURNS TABLE(
+    share_count BIGINT,
+    total_views BIGINT,
+    total_size BIGINT
+) LANGUAGE sql STABLE AS $$
+    SELECT
+        COUNT(*),
+        COALESCE(SUM(view_count), 0)::BIGINT,
+        COALESCE(SUM(file_size), 0)::BIGINT
+    FROM shares
+    WHERE user_id = p_user_id;
+$$;
