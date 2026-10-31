@@ -89,6 +89,78 @@ class ShareUpdate(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Public metadata (GET /shares/{slug})
+# ---------------------------------------------------------------------------
+
+class GroupFile(BaseModel):
+    """A sibling share in the same group, as listed on a share page."""
+    slug: str
+    filename: str | None = None
+    mime_type: str | None = None
+    file_size: int | None = None
+    download_count: int = 0
+    max_downloads: int | None = None
+
+    @classmethod
+    def from_row(cls, row: dict) -> GroupFile:
+        return cls(
+            slug=row["slug"],
+            filename=row.get("filename"),
+            mime_type=row.get("mime_type"),
+            file_size=row.get("file_size"),
+            download_count=row.get("download_count") or 0,
+            max_downloads=row.get("max_downloads"),
+        )
+
+
+class ShareMeta(BaseModel):
+    """Share metadata and access state. Built field by field from a row, never dumped from it."""
+    id: str
+    slug: str
+    filename: str | None = None
+    title: str | None = None
+    mime_type: str | None = None
+    language: str | None = None
+    file_size: int | None = None
+    view_count: int = 0
+    created_at: datetime
+    expires_at: datetime | None = None
+    is_private: bool = False
+    has_password: bool = False
+    burn_after_reading: bool = False
+    burned: bool = False
+    encrypted: bool = False
+    is_owner: bool = False
+    group_id: str | None = None
+    group_files: list[GroupFile] = []
+
+    @classmethod
+    def from_row(
+        cls, row: dict, *, is_owner: bool, group_files: list[GroupFile] | None = None
+    ) -> ShareMeta:
+        return cls(
+            id=str(row["id"]),
+            slug=row["slug"],
+            filename=row.get("filename"),
+            title=row.get("title"),
+            mime_type=row.get("mime_type"),
+            language=row.get("language"),
+            file_size=row.get("file_size"),
+            view_count=row.get("view_count") or 0,
+            created_at=row["created_at"],
+            expires_at=row.get("expires_at"),
+            is_private=bool(row.get("is_private")),
+            has_password=bool(row.get("password_hash")),
+            burn_after_reading=bool(row.get("burn_after_reading")),
+            burned=bool(row.get("burned")),
+            encrypted=bool(row.get("encrypted")),
+            is_owner=is_owner,
+            group_id=row.get("group_id"),
+            group_files=group_files or [],
+        )
+
+
+# ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
 

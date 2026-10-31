@@ -170,6 +170,7 @@ Source: `app/dashboard/invitations.py`. The `invitations_router` is mounted unde
 | Method | Path | Description |
 |---|---|---|
 | GET | `/api/dashboard/invitations` | List pending invites matching the caller's email. |
+| GET | `/api/invites/{token}` | Look up an invite for the accept page: team name/slug, inviter name, role, status, expiry (public). Unknown token 404, pending past expiry 410. The invitee email is returned only when the signed-in caller's own email matches; `email_matches` is `null` when anonymous. |
 | POST | `/api/invite/accept` | Accept by token. Body: `{token}`. |
 | POST | `/api/invite/decline` | Decline by token. Body: `{token}`. |
 
@@ -181,6 +182,7 @@ Source: `app/public/shares.py` (mounted under `/api`). Mixed auth.
 
 | Method | Path | Auth | Description |
 |---|---|---|---|
+| GET | `/api/shares/{slug}` | Public (optional auth) | Share metadata and access state (`ShareMeta`): `has_password`, `burned`, `is_owner`, `group_files[]`. No content, hash or delete token; never counts a view or burns. Private and not owner 404, expired 410. |
 | GET | `/api/shares/{slug}/content` | Public | View content. Handles expiration (410), password protection (403 `password_protected`), burn-after-reading, E2E metadata passthrough, and download-limit enforcement. |
 | DELETE | `/api/shares/{slug}` | Owner token | Delete share. Body `DeleteShareRequest?` with `delete_token`. |
 | POST | `/api/shares/{slug}/set-password` | Owner token | Set or clear password. Body `SetPasswordRequest(password?, delete_token?)`. |

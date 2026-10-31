@@ -100,6 +100,7 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | `GET` | `/api/search?q=` | Full-text search across public shares |
 | `GET` | `/api/explore?tag=&sort=` | Public gallery (trending, tag-filtered) |
 | `GET` | `/api/profiles/{handle}` | Public user profile + shares |
+| `GET` | `/api/shares/{slug}` | Share metadata and access state (no content, no view counted) |
 | `GET` | `/api/shares/{slug}/content` | View share content |
 | `GET` | `/api/shares/{slug}/download-status` | Check download status |
 | `GET` | `/api/shares/{slug}/download` | Download share as file |
@@ -151,6 +152,7 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | `GET` | `/api/dashboard/teams/{slug}/events` | List team events (paginated) |
 | `GET` | `/api/dashboard/teams/{slug}/shares` | List team shares (paginated) |
 | `GET` | `/api/dashboard/invitations` | List received invites |
+| `GET` | `/api/invites/{token}` | Look up an invite for the accept page (public) |
 | `POST` | `/api/invite/accept` | Accept team invite |
 | `POST` | `/api/invite/decline` | Decline team invite |
 | `POST` | `/api/shares/{slug}/stars` | Star a share (JWT required) |

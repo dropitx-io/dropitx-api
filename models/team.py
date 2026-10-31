@@ -47,6 +47,22 @@ class TeamInvite(BaseModel):
     created_at: datetime
 
 
+class InviteLookup(BaseModel):
+    """What the accept page may show to anyone holding an invite token.
+
+    The invitee's address is set only when the signed-in caller's own address matches;
+    ``email_matches`` is None for an anonymous caller.
+    """
+    team_name: str | None = None
+    team_slug: str | None = None
+    inviter_display_name: str | None = None
+    role: str
+    status: str
+    expires_at: datetime
+    invitee_email: str | None = None
+    email_matches: bool | None = None
+
+
 class TeamShare(BaseModel):
     """A share associated with a team."""
     id: str
