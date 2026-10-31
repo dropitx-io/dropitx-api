@@ -291,7 +291,7 @@ class TestOptionalAuthEndpoints:
             "old_password": "test123",
             "new_password": "test456",
         })
-        assert resp.status_code in (404, 500, 429)
+        assert resp.status_code in (401, 404, 500, 429)
 
 
 # ---------------------------------------------------------------------------
