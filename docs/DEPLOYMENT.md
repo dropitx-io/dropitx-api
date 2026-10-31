@@ -167,10 +167,10 @@ Interactive API docs (Swagger UI at `/docs`, ReDoc at `/redoc`) are available on
 
 1. In the Render dashboard, open the service → **Deployments** tab.
 2. Select the most recent known-good deployment and click **Rollback**. Render redeploys that commit's build and restarts the service.
-3. If the bad deploy shipped a code change only (no migration), rollback restores service immediately.
-4. If the bad deploy was triggered by a **Supabase migration**, rolling back the code does not undo the schema change. Revert the migration manually against Supabase before/after rolling back the Render deploy. `supabase db reset` deletes data — use it only on non-production projects or when data loss is acceptable.
+3. Rollback restores the previous image. The schema in `infra/init/` is applied only once, to a new empty database, so a deploy never changes an existing schema and there is nothing to revert in the database.
+4. To restore data, restore a database backup into a database; `infra/init/*.sql` cannot be re-run against an existing one.
 
-Because the service is stateless, Render rollback is the primary mechanism; database rollback is a separate, manual step against Supabase.
+Because the service is stateless, Render rollback is the primary mechanism; restoring data is a separate, manual database-backup restore.
 
 ## Monitoring
 
