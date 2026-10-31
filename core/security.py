@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import bcrypt
@@ -17,7 +18,10 @@ from core.config import settings
 # Firebase ID token and session cookie verification (public x509 certs, cached)
 # ---------------------------------------------------------------------------
 
-_CERTS_TTL = 3600  # 1 hour; refetched on a kid miss to survive key rotation
+_CERTS_TTL = 3600  # 1 hour
+# A kid miss refetches the certs to survive key rotation, at most this often per
+# key set, so tokens with made-up kids cannot turn into outbound requests.
+_CERTS_REFETCH_MIN_INTERVAL = 60
 _CLOCK_SKEW_SECONDS = 60
 
 
@@ -30,6 +34,8 @@ class _TokenKind:
     certs_url: str
     certs: dict[str, str] | None = None
     certs_expire_at: float = 0.0
+    last_fetch_at: float = 0.0
+    lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
 # The unverified `iss` claim only picks the entry whose keys verify the
@@ -52,18 +58,28 @@ _TOKEN_KINDS = (
 
 
 def _fetch_certs(kind: _TokenKind, force: bool = False) -> dict[str, str]:
-    """Fetch and cache a kind's public x509 signing certs, keyed by kid."""
-    now = time.time()
-    if not force and kind.certs is not None and now < kind.certs_expire_at:
+    """Fetch and cache a kind's public x509 signing certs, keyed by kid.
+
+    `force` asks for a refetch before the TTL runs out; it is honored only once
+    `_CERTS_REFETCH_MIN_INTERVAL` has passed since the last fetch.
+    """
+    with kind.lock:
+        now = time.time()
+        if kind.certs is not None:
+            if force:
+                if now - kind.last_fetch_at < _CERTS_REFETCH_MIN_INTERVAL:
+                    return kind.certs
+            elif now < kind.certs_expire_at:
+                return kind.certs
+
+        import httpx
+
+        resp = httpx.get(kind.certs_url, timeout=10)
+        resp.raise_for_status()
+        kind.certs = resp.json()
+        kind.certs_expire_at = now + _CERTS_TTL
+        kind.last_fetch_at = now
         return kind.certs
-
-    import httpx
-
-    resp = httpx.get(kind.certs_url, timeout=10)
-    resp.raise_for_status()
-    kind.certs = resp.json()
-    kind.certs_expire_at = now + _CERTS_TTL
-    return kind.certs
 
 
 def _cert_for_kid(kind: _TokenKind, kid: str) -> str:
@@ -122,6 +138,7 @@ def verify_firebase_jwt(token: str) -> dict:
             algorithms=["RS256"],
             audience=project_id,
             issuer=f"{kind.issuer_prefix}{project_id}",
+            options={"require_exp": True, "require_aud": True, "require_iss": True, "require_iat": True},
         )
     except (JWTError, JWSError) as exc:
         raise ValueError(f"Invalid Firebase token: {exc}") from exc
