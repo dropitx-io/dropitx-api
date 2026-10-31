@@ -99,6 +99,8 @@ Source: `app/v1/documents.py` (router prefix `/documents`, mounted under `/api/v
 | PATCH | `/api/v1/documents/{slug}` | Update document; saves a revision first. Body `DocumentUpdate`. |
 | DELETE | `/api/v1/documents/{slug}` | Delete document and its storage object (204). |
 
+Team keys (`sht_`): a private or password-protected team share gives the same 404 as a missing document on every route that reads or writes its content (GET, PATCH, revisions, restore), and the listing leaves it out. A team key cannot change a share's privacy: a PATCH that sets `is_private` is refused with 403. PATCH never changes a password. Personal keys (`shk_`) are unchanged.
+
 `DocumentCreate` fields: `content` (1–5 MB), `filename?`, `title?`, `is_private`, `encrypted`, `encryption_iv?`, `encryption_salt?`, `burn_after_reading`, `one_time_download`, `expires_in?` (seconds).
 
 ## v1 — API Keys (JWT)
@@ -132,8 +134,8 @@ Sources: `app/dashboard/shares.py`, `app/v1/favorites.py`. Both authenticate wit
 | GET | `/api/dashboard/shares?page=1&limit=20` | The caller's own shares, newest first, private and expired included. `page` >= 1, 1 <= `limit` <= 100 (422 otherwise). Returns `{items, total, page, limit}`. |
 | GET | `/api/dashboard/analytics/top-shares?limit=10` | `{totals: {share_count, total_views, total_size, unique_views, shares_with_views}, top: [{share_id, slug, title, total_views, unique_views}]}`. `totals` cover all the caller's shares (private, expired and burned included; `total_views` sums `shares.view_count`, a missing size counts as 0; `unique_views` and `shares_with_views` count the last 30 calendar days (UTC) of views across all of them). `top` ranks unexpired shares by views in the last 30 days. 1 <= `limit` <= 50 (422 otherwise). Source: `app/dashboard/analytics.py`. |
 | GET | `/api/dashboard/shares/{slug}/analytics?days=30` | Owner only; any other caller gets the same 404 as a missing slug. Returns `{share: {slug, title, filename}, days, summary, timeseries, referrers, geo}`: `summary` = `{total_views, unique_views, views_today, views_7d, avg_daily_views}`, `timeseries` = one `{date, views, unique_views}` per day, zero-filled, oldest first; `referrers` = top 10 `{referrer_source, views}`; `geo` = top 10 `{country_code, views}` (views with no country omitted). 1 <= `days` <= 365 (422 otherwise). |
-| GET | `/api/v1/favorites` | The caller's favorites, newest first: `ShareMeta` plus `favorited_at`. Shares the caller can no longer view are omitted. |
-| GET | `/api/v1/favorites/{share_id}` | `{favorited: bool}`. |
+| GET | `/api/v1/favorites` | The caller's favorites, newest first: `ShareMeta` plus `favorited_at`. Private shares the caller does not own, and burned or expired shares the caller does not own, are omitted. |
+| GET | `/api/v1/favorites/{share_id}` | `{favorited: bool}`; `false` for a non-owned private, burned or expired share. |
 | POST | `/api/v1/favorites/{share_id}` | Favorite a share. Idempotent; returns `{favorited: true}`. A missing share, a malformed id and a private share that is not the caller's all give the same 404. |
 | DELETE | `/api/v1/favorites/{share_id}` | Unfavorite. Idempotent; returns `{favorited: false}`. |
 
@@ -203,10 +205,10 @@ Source: `app/public/shares.py` (mounted under `/api`). Mixed auth.
 |---|---|---|---|
 | GET | `/api/shares/{slug}` | Public (optional auth) | Share metadata and access state (`ShareMeta`): `has_password`, `burned`, `is_owner`, `has_owner`, `group_files[]` (password siblings listed with `has_password`; private, burned and expired ones hidden). Rate limited to 300/min per IP (429). No content, hash or delete token; never counts a view or burns. Private and not owner 404, expired 410. |
 | GET | `/api/shares/{slug}/content` | Public | View content. Handles expiration (410), password protection (403 `password_protected`), burn-after-reading, E2E metadata passthrough, and download-limit enforcement. |
-| DELETE | `/api/shares/{slug}` | Owner token | Delete share. Body `DeleteShareRequest?` with `delete_token`. |
-| POST | `/api/shares/{slug}/set-password` | Owner token | Set or clear password. Body `SetPasswordRequest(password?, delete_token?)`. |
+| DELETE | `/api/shares/{slug}` | Owner token | Delete share. Body `DeleteShareRequest?` with `delete_token`. A wrong token is 404 on a private share (same as a missing share) and 403 on a public one. |
+| POST | `/api/shares/{slug}/set-password` | Owner token | Set or clear password. Body `SetPasswordRequest(password?, delete_token?)`. A wrong token is 404 on a private share (same as a missing share) and 403 on a public one. |
 | POST | `/api/shares/{slug}/unlock` | Public | Verify password (rate-limited 5/10min). Body `UnlockRequest`. |
-| POST | `/api/shares/{slug}/burn` | Owner token | Mark share consumed; 410 if already burned. Body `BurnShareRequest?`. |
+| POST | `/api/shares/{slug}/burn` | Owner token | Mark share consumed; 410 if already burned, for authorised callers only. Body `BurnShareRequest?`. A wrong token is 404 on a private share (same as a missing share, burned or not) and 403 on a public one. |
 | GET | `/api/shares/{slug}/download` | Public | Download as file attachment. Supports `?password=` for protected shares. |
 | GET | `/api/shares/{slug}/download-status` | Public | Availability, `max_downloads`, `download_count`, `burn_after_reading`, `expired`, `consumed`. |
 
@@ -250,7 +252,7 @@ Source: `app/public/encryption.py` (mounted under `/api`). AES-256-GCM + PBKDF2,
 | POST | `/api/encryption/generate-key` | Public | Generate `{key, iv, salt}` bundle for client-side encryption. |
 | GET | `/api/shares/{slug}/encryption-info` | Public | Encryption metadata (IV, salt, has_password) — never the key. Returns `EncryptionInfoResponse`. |
 | POST | `/api/shares/{slug}/encrypt` | Owner token | Encrypt an existing plaintext share with a password. Body `EncryptShareRequest(password, delete_token?)`. Returns `EncryptResponse`. |
-| POST | `/api/shares/{slug}/reencrypt` | Password holder | Re-encrypt with a new password. Body `ReencryptShareRequest(old_password, new_password, delete_token?)`. |
+| POST | `/api/shares/{slug}/reencrypt` | Owner token | Re-encrypt with a new password; the signed-in owner or the delete token, plus `old_password`. 401 with neither; a wrong token is 404 on a private share and 403 on a public one. Body `ReencryptShareRequest(old_password, new_password, delete_token?)`. |
 
 ## Public — Preview
 

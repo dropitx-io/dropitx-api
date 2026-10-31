@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import threading
 import time
@@ -10,9 +11,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 import bcrypt
+import httpx
 from jose import jwt, JWTError, JWSError
 
 from core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Firebase ID token and session cookie verification (public x509 certs, cached)
@@ -22,6 +26,10 @@ _CERTS_TTL = 3600  # 1 hour
 # A kid miss refetches the certs to survive key rotation, at most this often per
 # key set, so tokens with made-up kids cannot turn into outbound requests.
 _CERTS_REFETCH_MIN_INTERVAL = 60
+# After a failed fetch the endpoint is not called again for this long: callers get the
+# cached certs (or an immediate error when none are cached) instead of each waiting
+# out the fetch timeout.
+_CERTS_FAILURE_BACKOFF = 30
 _CLOCK_SKEW_SECONDS = 60
 
 
@@ -35,6 +43,7 @@ class _TokenKind:
     certs: dict[str, str] | None = None
     certs_expire_at: float = 0.0
     last_fetch_at: float = 0.0
+    last_failure_at: float = 0.0
     lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
 
 
@@ -62,6 +71,10 @@ def _fetch_certs(kind: _TokenKind, force: bool = False) -> dict[str, str]:
 
     `force` asks for a refetch before the TTL runs out; it is honored only once
     `_CERTS_REFETCH_MIN_INTERVAL` has passed since the last fetch.
+
+    When the fetch fails, cached certs keep being served (stale) rather than failing
+    every login, and the endpoint is left alone for `_CERTS_FAILURE_BACKOFF`. With
+    nothing cached the `httpx.HTTPError` propagates.
     """
     with kind.lock:
         now = time.time()
@@ -72,13 +85,26 @@ def _fetch_certs(kind: _TokenKind, force: bool = False) -> dict[str, str]:
             elif now < kind.certs_expire_at:
                 return kind.certs
 
-        import httpx
+        if kind.last_failure_at and now - kind.last_failure_at < _CERTS_FAILURE_BACKOFF:
+            if kind.certs is not None:
+                return kind.certs
+            raise httpx.TransportError(f"{kind.name} signing certs unavailable (recent fetch failed)")
 
-        resp = httpx.get(kind.certs_url, timeout=10)
-        resp.raise_for_status()
-        kind.certs = resp.json()
+        try:
+            resp = httpx.get(kind.certs_url, timeout=10)
+            resp.raise_for_status()
+            certs = resp.json()
+        except httpx.HTTPError as exc:
+            kind.last_failure_at = time.time()
+            if kind.certs is None:
+                raise
+            logger.warning("Fetching %s signing certs failed, serving cached certs: %s", kind.name, exc)
+            return kind.certs
+
+        kind.certs = certs
         kind.certs_expire_at = now + _CERTS_TTL
         kind.last_fetch_at = now
+        kind.last_failure_at = 0.0
         return kind.certs
 
 

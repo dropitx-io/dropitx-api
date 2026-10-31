@@ -79,12 +79,15 @@ async def _fetch_share(
     *,
     viewer: User | None = None,
     enforce_private: bool = False,
+    owner_check: tuple[User | None, str | None] | None = None,
 ) -> dict:
     """Fetch a share row by slug. Raises 404 if not found, 410 if expired.
 
     With ``enforce_private`` a private share is reported as 404 unless ``viewer``
-    owns it. The check runs before the burned/expired checks so a caller who may
-    not see the share cannot tell it from a missing one by status code.
+    owns it. With ``owner_check`` (the caller and the delete token they presented)
+    the caller must be authorized to modify the share. Both checks run before the
+    burned/expired checks so a caller who may not see the share cannot tell it from a
+    missing one by status code.
     """
     client = get_admin_client()
     resp = await asyncio.to_thread(
@@ -101,6 +104,8 @@ async def _fetch_share(
 
     if enforce_private:
         require_share_visible(row, viewer)
+    if owner_check is not None:
+        authorize_owner(row, *owner_check)
 
     # Check if burned
     if row.get("burned"):
@@ -416,9 +421,8 @@ async def delete_share(
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    row = await _fetch_share(slug)
+    row = await _fetch_share(slug, owner_check=(user, body.delete_token))
 
-    authorize_owner(row, user, body.delete_token)
     await _delete_share_row(row)
 
     return {"detail": "Share deleted"}
@@ -438,9 +442,7 @@ async def set_password(
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    row = await _fetch_share(slug)
-
-    authorize_owner(row, user, body.delete_token)
+    row = await _fetch_share(slug, owner_check=(user, body.delete_token))
 
     # null or empty string clears the password
     if body.password:
@@ -555,13 +557,8 @@ async def burn_share(
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    row = await _fetch_share(slug)
-
-    # Check if already burned
-    if row.get("burned"):
-        raise HTTPException(status_code=410, detail="Share has already been burned")
-
-    authorize_owner(row, user, body.delete_token)
+    # The lookup answers 410 for a burned share, but only after the caller is authorized.
+    row = await _fetch_share(slug, owner_check=(user, body.delete_token))
 
     # Mark as burned
     client = get_admin_client()

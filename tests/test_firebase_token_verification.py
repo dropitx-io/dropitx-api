@@ -316,3 +316,98 @@ def test_cert_outage_degrades_public_routes_to_anonymous(cert_outage, session_ke
 
     assert public.status_code == 200
     assert dashboard.status_code == 503
+
+
+# ---------------------------------------------------------------------------
+# Cert endpoint outage with certs already cached
+# ---------------------------------------------------------------------------
+
+class _Outage:
+    """httpx.get replacement that always fails and counts its calls."""
+
+    def __init__(self):
+        self.calls = 0
+
+    def get(self, url, timeout=None):
+        self.calls += 1
+        raise httpx.ConnectError("cert endpoint unreachable")
+
+
+def _session_kind(security):
+    return next(k for k in security._TOKEN_KINDS if k.certs_url == SESSION_CERTS_URL)
+
+
+@pytest.fixture
+def stale_certs(certs, session_key, monkeypatch):
+    """Session-cookie certs are cached, their TTL has run out, and the endpoint is down."""
+    from core import security
+
+    _claims(_token(session_key, SESSION_ISSUER))
+    _session_kind(security).certs_expire_at = 0.0
+    outage = _Outage()
+    monkeypatch.setattr("httpx.get", outage.get)
+    return outage
+
+
+def test_expired_cached_certs_keep_verifying_while_the_endpoint_is_down(stale_certs, session_key, caplog):
+    claims = _claims(_token(session_key, SESSION_ISSUER))
+
+    assert claims["sub"] == "uid-1"
+    assert stale_certs.calls == 1
+    assert "serving cached certs" in caplog.text
+
+
+def test_concurrent_verifications_during_an_outage_make_one_network_call(stale_certs, session_key):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from core import security
+
+    token = _token(session_key, SESSION_ISSUER)
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        results = list(pool.map(lambda _: security.verify_firebase_jwt(token), range(10)))
+
+    assert [r["sub"] for r in results] == ["uid-1"] * 10
+    assert stale_certs.calls == 1
+
+
+def test_outage_with_nothing_cached_makes_one_network_call_and_is_503(certs, session_key, monkeypatch):
+    outage = _Outage()
+    monkeypatch.setattr("httpx.get", outage.get)
+
+    statuses = []
+    for _ in range(3):
+        with pytest.raises(HTTPException) as exc:
+            _claims(_token(session_key, SESSION_ISSUER))
+        statuses.append(exc.value.status_code)
+
+    assert statuses == [503, 503, 503]
+    assert outage.calls == 1
+
+
+def test_endpoint_is_retried_once_the_failure_window_has_passed(stale_certs, session_key, monkeypatch):
+    from core import security
+
+    _claims(_token(session_key, SESSION_ISSUER))
+    assert stale_certs.calls == 1
+    _session_kind(security).last_failure_at -= security._CERTS_FAILURE_BACKOFF
+    rotated = _Keypair()
+    server = _CertServer({SESSION_CERTS_URL: {KID: session_key.cert_pem, "kid-2": rotated.cert_pem}})
+    monkeypatch.setattr("httpx.get", server.get)
+
+    claims = _claims(_token(rotated, SESSION_ISSUER, kid="kid-2"))
+
+    assert claims["sub"] == "uid-1"
+    assert server.calls == [SESSION_CERTS_URL]
+
+
+def test_unknown_kid_is_not_made_valid_by_stale_certs(stale_certs, session_key):
+    from core import security
+
+    _session_kind(security).last_fetch_at -= security._CERTS_REFETCH_MIN_INTERVAL
+    stranger = _Keypair()
+
+    with pytest.raises(HTTPException) as exc:
+        _claims(_token(stranger, SESSION_ISSUER, kid="unknown-kid"))
+
+    assert exc.value.status_code == 401
+    assert _claims(_token(session_key, SESSION_ISSUER))["sub"] == "uid-1"

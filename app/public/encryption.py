@@ -269,12 +269,21 @@ async def encrypt_share(
     summary="Re-encrypt share with new password",
     response_model=EncryptResponse,
 )
-async def reencrypt_share(slug: str, request: Request, body: ReencryptShareRequest):
+async def reencrypt_share(
+    slug: str,
+    request: Request,
+    body: ReencryptShareRequest,
+    user: User | None = Depends(get_optional_user),
+):
     """Re-encrypt an encrypted share with a new password.
 
     Decrypts with old password, re-encrypts with new password.
     Useful for password rotation or adding double protection.
+    Auth: share owner OR delete_token.
     """
+    if user is None and not body.delete_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     ip = get_client_ip(request)
     rate = check_password_rate_limit(ip, slug)
     if not rate.success:
@@ -285,6 +294,8 @@ async def reencrypt_share(slug: str, request: Request, body: ReencryptShareReque
         )
 
     row = await _fetch_share_for_encrypt(slug)
+
+    authorize_owner(row, user, body.delete_token)
 
     if not row.get("encrypted"):
         raise HTTPException(

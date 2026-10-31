@@ -8,11 +8,18 @@ from app.dependencies import User
 
 
 def authorize_owner(row: dict, user: User | None, delete_token: str | None) -> None:
-    """Verify the caller is the share owner or has the delete token."""
+    """Verify the caller is the share owner or has the delete token.
+
+    A caller who fails this check gets the missing-slug 404 for a private share, so a
+    wrong token cannot tell a private share from a nonexistent one; a public share is
+    already visible to everyone and answers 403.
+    """
     if delete_token and row.get("delete_token") == delete_token:
         return
     if user and user.id == row.get("user_id"):
         return
+    if row.get("is_private"):
+        raise HTTPException(status_code=404, detail="Share not found")
     raise HTTPException(status_code=403, detail="Not authorized to modify this share")
 
 

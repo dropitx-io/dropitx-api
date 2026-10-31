@@ -271,12 +271,18 @@ async def update_document(
     body: DocumentUpdate,
     auth: ApiKeyAuth = Depends(get_api_key),
 ) -> DocumentResponse:
-    """Update an existing document. Saves a revision before updating."""
+    """Update an existing document. Saves a revision before updating.
+
+    A team key may edit an open team share but never reads or changes a private or
+    password-protected one, nor a share's privacy.
+    """
     if not body.content and body.filename is None and body.title is None and body.is_private is None:
         raise HTTPException(status_code=400, detail="No fields to update")
 
     client = get_admin_client()
-    row = await find_document(client, slug, auth)
+    row = await find_document(client, slug, auth, for_content=True)
+    if auth.team_id is not None and body.is_private is not None:
+        raise HTTPException(status_code=403, detail="Team keys cannot change a document's privacy")
 
     # Save current state as a revision before updating
     if body.content:
