@@ -188,6 +188,41 @@ class TestFavorites:
             second["id"], first["id"],
         ]
 
+    def test_share_made_private_after_favoriting_disappears(self, client, seed):
+        owner, me = seed.user(), seed.user()
+        share = seed.share(owner, is_private=False)
+        act_as(me)
+        client.post(f"/api/v1/favorites/{share['id']}")
+        seed.db.table("shares").update({"is_private": True}).eq("id", share["id"]).execute()
+
+        assert client.get(f"/api/v1/favorites/{share['id']}").json() == {"favorited": False}
+        assert client.get("/api/v1/favorites").json() == []
+
+    @pytest.mark.parametrize("ended", [
+        {"expires_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()},
+        {"burned": True},
+    ], ids=["expired", "burned"])
+    def test_ended_share_is_hidden_from_non_owner_favorites(self, client, seed, ended):
+        owner, me = seed.user(), seed.user()
+        share = seed.share(owner, is_private=False)
+        act_as(me)
+        client.post(f"/api/v1/favorites/{share['id']}")
+        seed.db.table("shares").update(ended).eq("id", share["id"]).execute()
+
+        assert client.get(f"/api/v1/favorites/{share['id']}").json() == {"favorited": False}
+        assert client.get("/api/v1/favorites").json() == []
+
+    def test_owner_keeps_own_expired_share_as_favorite(self, client, seed):
+        owner = seed.user()
+        share = seed.share(owner, is_private=False)
+        act_as(owner)
+        client.post(f"/api/v1/favorites/{share['id']}")
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        seed.db.table("shares").update({"expires_at": past}).eq("id", share["id"]).execute()
+
+        assert client.get(f"/api/v1/favorites/{share['id']}").json() == {"favorited": True}
+        assert [i["id"] for i in client.get("/api/v1/favorites").json()] == [share["id"]]
+
     def test_favorites_are_per_user(self, client, seed):
         me, other = seed.user(), seed.user()
         share = seed.share(seed.user(), is_private=False)
