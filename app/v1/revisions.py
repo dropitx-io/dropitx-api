@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from app.dependencies import ApiKeyAuth, get_api_key
-from app.v1.document_helpers import find_document, fetch_content, infer_mime
+from app.v1.document_helpers import bucket_for, find_document, fetch_content, infer_mime
 from models.share import ShareRevision, RevisionListResponse
 from core.supabase import get_admin_client
 
@@ -80,7 +80,7 @@ async def list_revisions(
 ) -> RevisionListResponse:
     """List all revisions for a document, newest first."""
     client = get_admin_client()
-    row = await find_document(client, slug, auth)
+    row = await find_document(client, slug, auth, for_content=True)
     share_id = row["id"]
     offset = (page - 1) * limit
 
@@ -120,7 +120,7 @@ async def get_revision(
 ) -> ShareRevision:
     """Get a specific revision by number."""
     client = get_admin_client()
-    row = await find_document(client, slug, auth)
+    row = await find_document(client, slug, auth, for_content=True)
     share_id = row["id"]
 
     try:
@@ -178,7 +178,7 @@ async def restore_revision(
     restored_content = rev_row["content"]
 
     # Save current state as a new revision before overwriting
-    current_content = await fetch_content(client, row["storage_path"])
+    current_content = await fetch_content(client, row)
     await save_revision(
         share_id,
         current_content,
@@ -189,7 +189,7 @@ async def restore_revision(
     # Upload restored content to storage
     try:
         await asyncio.to_thread(
-            lambda: client.storage.from_("shares").update(
+            lambda: client.storage.from_(bucket_for(row)).update(
                 path=row["storage_path"],
                 file=restored_content.encode("utf-8"),
                 file_options={"content-type": infer_mime(row.get("filename"))},

@@ -14,6 +14,7 @@ from core.extract_text import extract_text_from_html, extract_text_from_markdown
 logger = logging.getLogger(__name__)
 
 _STORAGE_BUCKET = "shares"
+_UPLOAD_BUCKET = "html-files"
 _MIME_TEXT = "text/plain; charset=utf-8"
 
 
@@ -36,8 +37,20 @@ def infer_mime(filename: str | None) -> str:
     return _MIME_TEXT
 
 
-async def find_document(client, slug: str, auth: ApiKeyAuth) -> dict:
-    """Fetch a share row by slug, enforcing ownership/team access."""
+def team_key_may_read(row: dict, auth: ApiKeyAuth) -> bool:
+    """Team keys never read the content of private or password-protected shares."""
+    return not (auth.team_id and (row.get("is_private") or row.get("password_hash")))
+
+
+async def find_document(
+    client, slug: str, auth: ApiKeyAuth, *, for_content: bool = False,
+) -> dict:
+    """Fetch a share row by slug, enforcing ownership/team access.
+
+    With ``for_content`` the caller is about to return the share's content (or its
+    revisions): a team key then gets the same 404 as for a missing slug when the share
+    is private or password-protected.
+    """
     try:
         resp = await asyncio.to_thread(
             lambda: client.table("shares").select("*").eq("slug", slug).execute(),
@@ -72,14 +85,23 @@ async def find_document(client, slug: str, auth: ApiKeyAuth) -> dict:
         if row.get("user_id") != auth.user_id:
             raise HTTPException(status_code=403, detail="Not your document")
 
+    if for_content and not team_key_may_read(row, auth):
+        raise HTTPException(status_code=404, detail="Document not found")
+
     return row
 
 
-async def fetch_content(client, storage_path: str) -> str:
-    """Download and decode content from Supabase Storage."""
+def bucket_for(row: dict) -> str:
+    """Storage bucket holding a share's content: /api/upload and editor shares live in html-files."""
+    return _UPLOAD_BUCKET if row.get("source") in ("upload", "editor") else _STORAGE_BUCKET
+
+
+async def fetch_content(client, row: dict) -> str:
+    """Download and decode a share's content from storage."""
+    storage_path = row["storage_path"]
     try:
         resp = await asyncio.to_thread(
-            lambda: client.storage.from_(_STORAGE_BUCKET).download(storage_path),
+            lambda: client.storage.from_(bucket_for(row)).download(storage_path),
         )
         return resp.decode("utf-8") if isinstance(resp, bytes) else str(resp)
     except Exception as exc:
