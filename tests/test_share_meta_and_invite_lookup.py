@@ -15,7 +15,7 @@ from app.main import app
 from core.rate_limit import RateLimitResult
 from core.security import hash_password
 from core.supabase import get_admin_client
-from tests.conftest import PRIVATE_BODY, Seed, act_as, walk_keys
+from tests.conftest import PRIVATE_BODY, Seed, act_as, unique_ip, walk_keys
 
 SECRET_KEYS = {"password_hash", "delete_token", "content", "content_text", "storage_path"}
 BODY = "<h1>meta body</h1>"
@@ -245,6 +245,25 @@ class TestShareMeta:
         content = client.get(f"/api/shares/{share['slug']}/content")
         assert content.status_code == 200
         assert content.json()["content"] == BODY
+
+    def test_one_time_share_is_flagged_and_survives_metadata_calls(self, client, seed):
+        share = seed.share(seed.user(), body=BODY, is_private=False, one_time_download=True)
+        act_as(None)
+
+        for _ in range(2):
+            meta = client.get(f"/api/shares/{share['slug']}")
+            assert meta.status_code == 200
+            assert meta.json()["one_time_download"] is True
+
+        content = client.get(f"/api/shares/{share['slug']}/content", headers=unique_ip())
+        assert content.status_code == 200
+        assert content.json()["content"] == BODY
+
+    def test_normal_share_is_not_flagged_one_time(self, client, seed):
+        share = seed.share(seed.user(), body=BODY, is_private=False)
+        act_as(None)
+
+        assert client.get(f"/api/shares/{share['slug']}").json()["one_time_download"] is False
 
     def test_rate_limited_caller_gets_429_before_any_lookup(self, client, seed, monkeypatch):
         share = seed.share(seed.user(), is_private=False)

@@ -131,6 +131,7 @@ class ShareMeta(BaseModel):
     has_password: bool = False
     burn_after_reading: bool = False
     burned: bool = False
+    one_time_download: bool = False
     encrypted: bool = False
     is_owner: bool = False
     has_owner: bool = False
@@ -156,6 +157,7 @@ class ShareMeta(BaseModel):
             has_password=bool(row.get("password_hash")),
             burn_after_reading=bool(row.get("burn_after_reading")),
             burned=bool(row.get("burned")),
+            one_time_download=bool(row.get("one_time_download")),
             encrypted=bool(row.get("encrypted")),
             is_owner=is_owner,
             has_owner=bool(row.get("user_id")),

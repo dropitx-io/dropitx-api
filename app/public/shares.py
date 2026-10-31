@@ -251,7 +251,7 @@ async def get_share_content(
 _SHARE_META_COLUMNS = (
     "id, slug, user_id, filename, title, mime_type, language, file_size, view_count, "
     "created_at, expires_at, is_private, password_hash, burn_after_reading, burned, "
-    "encrypted, group_id"
+    "one_time_download, encrypted, group_id"
 )
 
 
