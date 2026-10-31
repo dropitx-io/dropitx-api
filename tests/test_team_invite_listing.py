@@ -1,4 +1,4 @@
-"""Live-DB tests: GET /api/dashboard/teams/{slug}/invites only shows tokens to owners and admins."""
+"""Live-DB tests: GET /api/dashboard/teams/{slug}/invites only shows tokens to team owners."""
 
 from __future__ import annotations
 

@@ -30,8 +30,9 @@ class TestUpdateProfile:
 
     def test_response_exposes_only_display_name_and_avatar_url(self, client, seed):
         user = seed.user()
+        username = f"u{user.id[-8:]}"
         seed.db.table("user_profiles").insert(
-            {"user_id": user.id, "username": f"u{user.id[-8:]}", "bio": "private bio"}
+            {"user_id": user.id, "username": username, "bio": "private bio"}
         ).execute()
         act_as(user)
 
@@ -39,6 +40,9 @@ class TestUpdateProfile:
 
         assert set(body) == {"display_name", "avatar_url"}
         assert body["avatar_url"] is None
+        row = _profile(seed, user)
+        assert row["username"] == username
+        assert row["bio"] == "private bio"
 
     def test_creates_the_profile_row_when_the_caller_has_none(self, client, seed):
         user = seed.user()

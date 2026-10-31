@@ -25,8 +25,8 @@ from models.team import TeamRole
 
 logger = logging.getLogger(__name__)
 
-# Roles allowed to read invite tokens in the listing
-INVITE_TOKEN_ROLES = frozenset({"owner", "admin"})
+# Roles allowed to read invite tokens in the listing: the role model has no admin
+INVITE_TOKEN_ROLES = frozenset({"owner"})
 
 # Shared router — imported from teams module so all /teams/* routes live on one router
 from app.dashboard.teams import router  # noqa: E402
@@ -52,7 +52,7 @@ async def list_invites(slug: str, user: User = Depends(get_current_user)):
         .execute()
     )
     rows = resp.data or []
-    # The token is the credential for accepting an invite: only owners and admins may see it.
+    # The token is the credential for accepting an invite: only team owners may see it.
     if membership["role"] in INVITE_TOKEN_ROLES:
         return rows
     return [{key: value for key, value in row.items() if key != "token"} for row in rows]
