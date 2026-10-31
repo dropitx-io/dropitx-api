@@ -102,6 +102,19 @@ class TestPrivateShareWrongToken:
         assert resp.status_code == 404
         assert resp.json() == missing_slug_body(route)
 
+    @route_params
+    def test_expired_private_share_with_a_wrong_token_is_404_and_is_not_deleted(
+        self, client, seed, missing_slug_body, route
+    ):
+        share = seed.share(seed.user(), expires_at="2020-01-01T00:00:00+00:00")
+        act_as(None)
+
+        resp = _call(client, route, share["slug"], "wrong-token")
+
+        assert resp.status_code == 404
+        assert resp.json() == missing_slug_body(route)
+        assert _row(seed, share) is not None
+
     def test_burning_an_already_burned_private_share_as_its_owner_is_410(self, client, seed):
         share = seed.share(seed.user(), burned=True)
         act_as(None)
@@ -121,6 +134,15 @@ class TestPublicShareWrongToken:
 
         assert resp.status_code == 403
         assert _row(seed, share) == share
+
+    @route_params
+    def test_burned_public_share_with_a_wrong_token_is_403_not_410(self, client, seed, route):
+        share = seed.share(seed.user(), is_private=False, burned=True)
+        act_as(None)
+
+        resp = _call(client, route, share["slug"], "wrong-token")
+
+        assert resp.status_code == 403
 
 
 # ---------------------------------------------------------------------------

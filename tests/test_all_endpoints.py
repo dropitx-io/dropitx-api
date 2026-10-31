@@ -286,12 +286,12 @@ class TestOptionalAuthEndpoints:
         assert resp.status_code in (401, 404, 500)
 
     @pytest.mark.asyncio
-    async def test_reencrypt_share_no_auth_or_rate_limited(self, client):
+    async def test_reencrypt_share_without_auth_is_401(self, client):
         resp = await client.post(f"/api/shares/{FAKE_SLUG}/reencrypt", json={
             "old_password": "test123",
             "new_password": "test456",
         })
-        assert resp.status_code in (401, 404, 500, 429)
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------
