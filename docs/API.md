@@ -120,6 +120,20 @@ Source: `app/v1/revisions.py` (router prefix `/documents/{slug}/revisions`, moun
 
 ---
 
+## Dashboard — My shares and favorites (JWT)
+
+Sources: `app/dashboard/shares.py`, `app/v1/favorites.py`. Both authenticate with a Firebase token (not an API key), although favorites sit under `/api/v1`. Items are `ShareMeta` (`models/share.py`), built field by field: no content, `password_hash` or `delete_token`; `has_password` instead.
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/dashboard/shares?page=1&limit=20` | The caller's own shares, newest first, private and expired included. `page` >= 1, 1 <= `limit` <= 100 (422 otherwise). Returns `{items, total, page, limit}`. |
+| GET | `/api/v1/favorites` | The caller's favorites, newest first: `ShareMeta` plus `favorited_at`. Shares the caller can no longer view are omitted. |
+| GET | `/api/v1/favorites/{share_id}` | `{favorited: bool}`. |
+| POST | `/api/v1/favorites/{share_id}` | Favorite a share. Idempotent; returns `{favorited: true}`. A missing share, a malformed id and a private share that is not the caller's all give the same 404. |
+| DELETE | `/api/v1/favorites/{share_id}` | Unfavorite. Idempotent; returns `{favorited: false}`. |
+
+---
+
 ## Dashboard — Teams (JWT)
 
 Source: `app/dashboard/teams.py` (no router-level prefix, mounted under `/api/dashboard`). All routes require a JWT. Role enforcement (`owner` / `editor` / `viewer`) is centralized in `app/dashboard/team_helpers.py`. `CreateTeamInput` from `models/team.py`.
@@ -128,7 +142,7 @@ Source: `app/dashboard/teams.py` (no router-level prefix, mounted under `/api/da
 |---|---|---|---|
 | GET | `/api/dashboard/teams` | member | List teams the caller belongs to. |
 | POST | `/api/dashboard/teams` | any | Create team; caller becomes owner. Body `CreateTeamInput(name, slug?)` (201). |
-| GET | `/api/dashboard/teams/{slug}` | member | Get team details. |
+| GET | `/api/dashboard/teams/{slug}` | member | Get team details plus the caller's `role`. |
 | PATCH | `/api/dashboard/teams/{slug}` | owner | Update name/slug. Body: `{name?, slug?}`. |
 | DELETE | `/api/dashboard/teams/{slug}` | owner | Delete team and associated data (204). |
 | GET | `/api/dashboard/teams/{slug}/members` | member | List members (with display name + avatar). |

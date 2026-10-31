@@ -132,9 +132,12 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | `POST` | `/api/requests` | Create file request/upload link |
 | `GET` | `/api/dashboard/requests` | List user's file requests |
 | `GET` | `/api/download/group/{slug}` | Bulk download group as ZIP |
+| `GET` | `/api/dashboard/shares` | List the caller's own shares, newest first (`page`, `limit` up to 100) |
+| `GET` | `/api/v1/favorites` | List the caller's favorited shares |
+| `GET` / `POST` / `DELETE` | `/api/v1/favorites/{share_id}` | Check, add or remove a favorite (add and remove are idempotent) |
 | `GET` | `/api/dashboard/teams` | List user's teams |
 | `POST` | `/api/dashboard/teams` | Create a team (caller becomes owner) |
-| `GET` | `/api/dashboard/teams/{slug}` | Get team details (member only) |
+| `GET` | `/api/dashboard/teams/{slug}` | Get team details and the caller's `role` (member only) |
 | `PATCH` | `/api/dashboard/teams/{slug}` | Update team name/slug (owner only) |
 | `DELETE` | `/api/dashboard/teams/{slug}` | Delete team (owner only) |
 | `GET` | `/api/dashboard/teams/{slug}/members` | List team members |
