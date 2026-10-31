@@ -133,6 +133,8 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | `GET` | `/api/dashboard/requests` | List user's file requests |
 | `GET` | `/api/download/group/{slug}` | Bulk download group as ZIP |
 | `GET` | `/api/dashboard/shares` | List the caller's own shares, newest first (`page`, `limit` up to 100) |
+| `GET` | `/api/dashboard/analytics/top-shares` | Totals over all the caller's shares plus the top shares by recent views (`limit` up to 50) |
+| `GET` | `/api/dashboard/shares/{slug}/analytics` | Summary, daily timeseries, referrers and countries for one of the caller's shares (`days` 1-365; owner only) |
 | `GET` | `/api/v1/favorites` | List the caller's favorited shares |
 | `GET` / `POST` / `DELETE` | `/api/v1/favorites/{share_id}` | Check, add or remove a favorite (add and remove are idempotent) |
 | `GET` | `/api/dashboard/teams` | List user's teams |
