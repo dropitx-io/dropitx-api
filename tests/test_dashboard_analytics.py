@@ -122,7 +122,34 @@ class TestTopShares:
         body = client.get("/api/dashboard/analytics/top-shares?limit=2").json()
 
         assert len(body["top"]) == 2
-        assert body["totals"] == {"share_count": 5, "total_views": 22, "total_size": 185}
+        assert body["totals"] == {
+            "share_count": 5, "total_views": 22, "total_size": 185,
+            "unique_views": 0, "shares_with_views": 0,
+        }
+
+    def test_totals_count_recent_views_across_every_share(self, client, seed):
+        me, other = seed.user(), seed.user()
+        ranked = _insert_share(seed, me)
+        expired = _insert_share(seed, me, expires_at=_past(3))
+        hidden = _insert_share(seed, me, is_private=True, burned=True)
+        _insert_share(seed, me)  # never viewed
+        stale = _insert_share(seed, me)
+        theirs = _insert_share(seed, other)
+        _add_view(ranked)
+        _add_view(ranked)
+        _add_view(ranked, unique=False)
+        _add_view(expired)
+        _add_view(hidden, days_ago=3, unique=False)
+        _add_view(stale, days_ago=45)  # outside the 30-day window
+        for _ in range(5):
+            _add_view(theirs)
+        act_as(me)
+
+        body = client.get("/api/dashboard/analytics/top-shares?limit=1").json()
+
+        assert [t["slug"] for t in body["top"]] == [ranked["slug"]]
+        assert body["totals"]["unique_views"] == 3
+        assert body["totals"]["shares_with_views"] == 3
 
     def test_user_without_shares_gets_zero_totals_and_no_rows(self, client, seed):
         act_as(seed.user())
@@ -131,7 +158,10 @@ class TestTopShares:
 
         assert resp.status_code == 200
         assert resp.json() == {
-            "totals": {"share_count": 0, "total_views": 0, "total_size": 0},
+            "totals": {
+                "share_count": 0, "total_views": 0, "total_size": 0,
+                "unique_views": 0, "shares_with_views": 0,
+            },
             "top": [],
         }
 

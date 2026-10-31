@@ -33,6 +33,8 @@ async def top_shares(
     """The caller's shares ranked by views in the last 30 days, plus totals over all their shares.
 
     Totals include private, expired and burned shares; the ranking skips expired ones.
+    ``unique_views`` and ``shares_with_views`` in the totals count the last 30 days of views
+    on all of them.
     """
     client = get_admin_client()
     totals_resp, top_resp = await asyncio.gather(
@@ -51,6 +53,8 @@ async def top_shares(
             share_count=totals_row.get("share_count") or 0,
             total_views=totals_row.get("total_views") or 0,
             total_size=totals_row.get("total_size") or 0,
+            unique_views=totals_row.get("unique_views") or 0,
+            shares_with_views=totals_row.get("shares_with_views") or 0,
         ),
         top=[
             TopShare(

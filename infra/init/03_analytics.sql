@@ -36,8 +36,9 @@ END;
 $$ LANGUAGE plpgsql;
 
 -- =========================================================================
--- Read functions. A window of p_days covers views in the last p_days * 24h;
--- the timeseries covers the last p_days calendar days (UTC), today included.
+-- Read functions. Every window is the last p_days calendar days (UTC), today
+-- included, so a summary, a timeseries and the breakdowns of one share always add
+-- up. The functions pin the session timezone to UTC so "today" does not depend on it.
 -- =========================================================================
 
 -- Summary of one share's views in the window.
@@ -50,16 +51,19 @@ CREATE OR REPLACE FUNCTION get_share_analytics(
     views_today BIGINT,
     views_7d BIGINT,
     avg_daily_views DOUBLE PRECISION
-) LANGUAGE sql STABLE AS $$
+) LANGUAGE sql STABLE SET timezone = 'UTC' AS $$
     SELECT
         COUNT(*),
         COUNT(*) FILTER (WHERE is_unique),
         COUNT(*) FILTER (WHERE viewed_at >= date_trunc('day', now())),
-        COUNT(*) FILTER (WHERE viewed_at > now() - INTERVAL '7 days'),
+        -- Independent of the window: a p_days shorter than a week must not clamp it.
+        (SELECT COUNT(*) FROM share_views w
+          WHERE w.share_id = p_share_id
+            AND w.viewed_at >= date_trunc('day', now()) - INTERVAL '6 days'),
         CASE WHEN p_days > 0 THEN round(COUNT(*)::NUMERIC / p_days, 1)::DOUBLE PRECISION ELSE 0 END
     FROM share_views
     WHERE share_id = p_share_id
-      AND viewed_at > now() - make_interval(days => p_days);
+      AND viewed_at >= date_trunc('day', now()) - make_interval(days => p_days - 1);
 $$;
 
 -- One row per day, oldest first, days without views included.
@@ -70,7 +74,7 @@ CREATE OR REPLACE FUNCTION get_share_view_timeseries(
     date DATE,
     views BIGINT,
     unique_views BIGINT
-) LANGUAGE sql STABLE AS $$
+) LANGUAGE sql STABLE SET timezone = 'UTC' AS $$
     SELECT
         d::DATE,
         COUNT(v.id),
@@ -96,11 +100,11 @@ CREATE OR REPLACE FUNCTION get_share_referrers(
 ) RETURNS TABLE(
     referrer_source TEXT,
     views BIGINT
-) LANGUAGE sql STABLE AS $$
+) LANGUAGE sql STABLE SET timezone = 'UTC' AS $$
     SELECT v.referrer_source, COUNT(*) AS views
     FROM share_views v
     WHERE v.share_id = p_share_id
-      AND v.viewed_at > now() - make_interval(days => p_days)
+      AND v.viewed_at >= date_trunc('day', now()) - make_interval(days => p_days - 1)
     GROUP BY v.referrer_source
     ORDER BY views DESC, v.referrer_source
     LIMIT p_limit;
@@ -114,18 +118,18 @@ CREATE OR REPLACE FUNCTION get_share_geo(
 ) RETURNS TABLE(
     country_code TEXT,
     views BIGINT
-) LANGUAGE sql STABLE AS $$
+) LANGUAGE sql STABLE SET timezone = 'UTC' AS $$
     SELECT v.country_code, COUNT(*) AS views
     FROM share_views v
     WHERE v.share_id = p_share_id
-      AND v.viewed_at > now() - make_interval(days => p_days)
+      AND v.viewed_at >= date_trunc('day', now()) - make_interval(days => p_days - 1)
       AND v.country_code IS NOT NULL
     GROUP BY v.country_code
     ORDER BY views DESC, v.country_code
     LIMIT p_limit;
 $$;
 
--- A user's unexpired shares ranked by views in the last 30 days.
+-- A user's unexpired shares ranked by views in the last 30 calendar days (UTC).
 CREATE OR REPLACE FUNCTION get_user_top_shares(
     p_user_id TEXT,
     p_limit INT DEFAULT 5
@@ -135,7 +139,7 @@ CREATE OR REPLACE FUNCTION get_user_top_shares(
     title TEXT,
     total_views BIGINT,
     unique_views BIGINT
-) LANGUAGE sql STABLE AS $$
+) LANGUAGE sql STABLE SET timezone = 'UTC' AS $$
     SELECT
         s.id,
         s.slug,
@@ -148,7 +152,7 @@ CREATE OR REPLACE FUNCTION get_user_top_shares(
                COUNT(*) AS total_views,
                COUNT(*) FILTER (WHERE v.is_unique) AS unique_views
         FROM share_views v
-        WHERE v.viewed_at > now() - INTERVAL '30 days'
+        WHERE v.viewed_at >= date_trunc('day', now()) - make_interval(days => 29)
         GROUP BY v.share_id
     ) agg ON agg.share_id = s.id
     WHERE s.user_id = p_user_id
@@ -158,18 +162,30 @@ CREATE OR REPLACE FUNCTION get_user_top_shares(
 $$;
 
 -- Counts and sizes across every share a user owns: private, expired and burned
--- included. A share with no recorded size counts as 0 bytes.
+-- included. A share with no recorded size counts as 0 bytes. unique_views and
+-- shares_with_views cover the last 30 calendar days (UTC) of views on those shares.
 CREATE OR REPLACE FUNCTION get_user_share_totals(
     p_user_id TEXT
 ) RETURNS TABLE(
     share_count BIGINT,
     total_views BIGINT,
-    total_size BIGINT
-) LANGUAGE sql STABLE AS $$
+    total_size BIGINT,
+    unique_views BIGINT,
+    shares_with_views BIGINT
+) LANGUAGE sql STABLE SET timezone = 'UTC' AS $$
+    WITH recent AS (
+        SELECT v.share_id, v.is_unique
+        FROM share_views v
+        JOIN shares s ON s.id = v.share_id
+        WHERE s.user_id = p_user_id
+          AND v.viewed_at >= date_trunc('day', now()) - make_interval(days => 29)
+    )
     SELECT
         COUNT(*),
         COALESCE(SUM(view_count), 0)::BIGINT,
-        COALESCE(SUM(file_size), 0)::BIGINT
+        COALESCE(SUM(file_size), 0)::BIGINT,
+        (SELECT COUNT(*) FILTER (WHERE is_unique) FROM recent),
+        (SELECT COUNT(DISTINCT share_id) FROM recent)
     FROM shares
     WHERE user_id = p_user_id;
 $$;
