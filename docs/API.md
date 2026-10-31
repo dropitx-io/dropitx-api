@@ -138,6 +138,7 @@ Sources: `app/dashboard/shares.py`, `app/v1/favorites.py`. Both authenticate wit
 | GET | `/api/v1/favorites/{share_id}` | `{favorited: bool}`; `false` for a non-owned private, burned or expired share. |
 | POST | `/api/v1/favorites/{share_id}` | Favorite a share. Idempotent; returns `{favorited: true}`. A missing share, a malformed id and a private share that is not the caller's all give the same 404. |
 | DELETE | `/api/v1/favorites/{share_id}` | Unfavorite. Idempotent; returns `{favorited: false}`. |
+| PUT | `/api/v1/profile` | Set the caller's display name (Firebase token, `app/v1/profile.py`). Body `ProfileUpdate {display_name}`, trimmed, 1-100 characters (422 otherwise). Creates the caller's `user_profiles` row when missing. Returns `ProfileResponse {display_name, avatar_url}` only. |
 
 ---
 
@@ -162,7 +163,7 @@ Source: `app/dashboard/team_invites.py`. Routes are registered onto the `teams_r
 
 | Method | Path | Role | Description |
 |---|---|---|---|
-| GET | `/api/dashboard/teams/{slug}/invites` | member | List pending invites. |
+| GET | `/api/dashboard/teams/{slug}/invites` | member | List pending invites. Rows carry `token` only when the caller's team role is `owner` or `admin`; for any other role the `token` key is absent. |
 | POST | `/api/dashboard/teams/{slug}/invites` | editor+ | Create invite. Body: `{email, role="viewer"}` (201). |
 | DELETE | `/api/dashboard/teams/{slug}/invites` | editor+ | Revoke invite. Body: `{invite_id}`. |
 | POST | `/api/dashboard/teams/{slug}/invites/bulk` | editor+ | Bulk invite up to 50 emails. Body: `{emails[], role}`. |
@@ -204,7 +205,7 @@ Source: `app/public/shares.py` (mounted under `/api`). Mixed auth.
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/api/shares/{slug}` | Public (optional auth) | Share metadata and access state (`ShareMeta`): `has_password`, `burned`, `is_owner`, `has_owner`, `group_files[]` (password siblings listed with `has_password`; private, burned and expired ones hidden). Rate limited to 300/min per IP (429). No content, hash or delete token; never counts a view or burns. Private and not owner 404, expired 410. |
-| GET | `/api/shares/{slug}/content` | Public | View content. Handles expiration (410), password protection (403 `password_protected`), burn-after-reading, E2E metadata passthrough, and download-limit enforcement. |
+| GET | `/api/shares/{slug}/content` | Public | View content. Handles expiration (410), password protection, burn-after-reading, E2E metadata passthrough, and download-limit enforcement. A password-protected share returns `content: ""` and `password_protected: true` to everyone except its signed-in owner, who gets the real `content` (still with `password_protected: true`) and the same view-count, burn and one-time side effects as for an unprotected share. |
 | DELETE | `/api/shares/{slug}` | Owner token | Delete share. Body `DeleteShareRequest?` with `delete_token`. A wrong token is 404 on a private share (same as a missing share) and 403 on a public one. |
 | POST | `/api/shares/{slug}/set-password` | Owner token | Set or clear password. Body `SetPasswordRequest(password?, delete_token?)`. A wrong token is 404 on a private share (same as a missing share) and 403 on a public one. |
 | POST | `/api/shares/{slug}/unlock` | Public | Verify password (rate-limited 5/10min). Body `UnlockRequest`. |
