@@ -101,6 +101,8 @@ class GroupFile(BaseModel):
     download_count: int = 0
     max_downloads: int | None = None
     has_password: bool = False
+    burn_after_reading: bool = False
+    one_time_download: bool = False
 
     @classmethod
     def from_row(cls, row: dict) -> GroupFile:
@@ -112,6 +114,8 @@ class GroupFile(BaseModel):
             download_count=row.get("download_count") or 0,
             max_downloads=row.get("max_downloads"),
             has_password=bool(row.get("password_hash")),
+            burn_after_reading=bool(row.get("burn_after_reading")),
+            one_time_download=bool(row.get("one_time_download")),
         )
 
 

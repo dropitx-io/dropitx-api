@@ -161,7 +161,7 @@ class TestShareMeta:
         listed = body["group_files"][1]
         assert set(listed) == {
             "slug", "filename", "mime_type", "file_size", "download_count", "max_downloads",
-            "has_password",
+            "has_password", "burn_after_reading", "one_time_download",
         }
         assert listed["file_size"] == 20 and listed["max_downloads"] == 3
         assert not SECRET_KEYS & set(walk_keys(body))
@@ -182,6 +182,29 @@ class TestShareMeta:
         assert by_slug[locked["slug"]]["has_password"] is True
         assert by_slug[open_file["slug"]]["has_password"] is False
         assert pw_hash not in resp.text
+
+    def test_group_siblings_report_burn_and_one_time_and_survive_metadata_calls(self, client, seed):
+        owner = seed.user()
+        group = seed.group(owner)
+        plain = seed.share(owner, is_private=False, group_id=group)
+        burn = seed.share(owner, is_private=False, group_id=group, burn_after_reading=True, body=BODY)
+        once = seed.share(owner, is_private=False, group_id=group, one_time_download=True)
+        act_as(None)
+
+        for _ in range(2):
+            resp = client.get(f"/api/shares/{plain['slug']}")
+            assert resp.status_code == 200
+            by_slug = {f["slug"]: f for f in resp.json()["group_files"]}
+            assert by_slug[burn["slug"]]["burn_after_reading"] is True
+            assert by_slug[burn["slug"]]["one_time_download"] is False
+            assert by_slug[once["slug"]]["one_time_download"] is True
+            assert by_slug[once["slug"]]["burn_after_reading"] is False
+            assert by_slug[plain["slug"]]["burn_after_reading"] is False
+            assert by_slug[plain["slug"]]["one_time_download"] is False
+
+        content = client.get(f"/api/shares/{burn['slug']}/content", headers=unique_ip())
+        assert content.status_code == 200
+        assert content.json()["content"] == BODY
 
     def test_group_owner_sees_private_siblings_too(self, client, seed):
         owner = seed.user()

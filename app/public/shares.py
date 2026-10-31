@@ -274,7 +274,7 @@ async def _visible_group_files(row: dict, viewer: User | None) -> list[GroupFile
     resp = await asyncio.to_thread(
         lambda: client.table("shares")
         .select("slug, user_id, filename, mime_type, file_size, download_count, max_downloads, "
-                "is_private, password_hash, burned, expires_at")
+                "is_private, password_hash, burn_after_reading, one_time_download, burned, expires_at")
         .eq("group_id", row["group_id"])
         .order("created_at", desc=False)
         .execute()
