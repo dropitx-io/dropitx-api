@@ -10,13 +10,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.dependencies import User, get_current_user, get_optional_user
 from app.main import app
 from app.services.cleanup import cleanup_expired_file_requests
 from core.db import _get_pool, _run_async
 from core.supabase import get_admin_client
+from tests.conftest import unique_ip
 
 UTC = timezone.utc
 INSTANT = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
@@ -301,16 +301,6 @@ class TestExpiredFileRequestCleanup:
 # POST /api/upload/multi with several files
 # ---------------------------------------------------------------------------
 
-def _unique_ip() -> dict:
-    return {"cf-connecting-ip": f"10.{uuid.uuid4().int % 250}.{uuid.uuid4().int % 250}.{uuid.uuid4().int % 250}"}
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-
-
 class TestMultiUpload:
     @pytest.fixture
     def owner(self):
@@ -341,7 +331,7 @@ class TestMultiUpload:
                 ("files", ("second.md", b"# second", "text/markdown")),
             ],
             data={"is_private": "true"},
-            headers=_unique_ip(),
+            headers=unique_ip(),
         )
 
         assert resp.status_code == 200, resp.text
@@ -375,7 +365,7 @@ class TestMultiUpload:
                 ("files", ("b.html", b"<p>b</p>", "text/html")),
                 ("files", ("c.html", b"<p>c</p>", "text/html")),
             ],
-            headers=_unique_ip(),
+            headers=unique_ip(),
         )
 
         assert resp.status_code == 200, resp.text

@@ -10,7 +10,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.dependencies import User, get_current_user, get_optional_user
 from app.internal.publish import _resolve_custom_slug
@@ -41,12 +40,6 @@ def seed(db):
     yield add
     for table, key, value in reversed(made):
         db.table(table).delete().eq(key, value).execute()
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
 
 
 def _act_as(uid: str) -> None:

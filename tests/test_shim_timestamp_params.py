@@ -11,12 +11,12 @@ import uuid
 from datetime import date, datetime, timedelta, timezone
 
 import pytest
-from fastapi.testclient import TestClient
 
-from app.dependencies import ApiKeyAuth, User, get_api_key, get_current_user, get_optional_user
+from app.dependencies import ApiKeyAuth, get_api_key, get_optional_user
 from app.main import app
 from core.db import _get_pool, _run_async
 from core.supabase import get_admin_client
+from tests.conftest import unique_ip
 
 UTC = timezone.utc
 INSTANT = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
@@ -188,16 +188,6 @@ class TestStatementCache:
 # Endpoints that write ISO strings into shares.expires_at
 # ---------------------------------------------------------------------------
 
-def _unique_ip() -> dict:
-    return {"cf-connecting-ip": f"10.{uuid.uuid4().int % 250}.{uuid.uuid4().int % 250}.{uuid.uuid4().int % 250}"}
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-
-
 @pytest.fixture
 def created():
     """Shares and users created through the API by one test, removed on teardown."""
@@ -233,7 +223,7 @@ class TestEndpointsStoreExpiry:
             "/api/cli/upload",
             files={"file": ("note.md", b"# cli", "text/markdown")},
             data={"expires": "1h"},
-            headers=_unique_ip(),
+            headers=unique_ip(),
         )
 
         assert resp.status_code == 200, resp.text
@@ -247,7 +237,7 @@ class TestEndpointsStoreExpiry:
         resp = client.post(
             "/api/cli/upload/text",
             data={"content": "plain cli text"},
-            headers=_unique_ip(),
+            headers=unique_ip(),
         )
 
         assert resp.status_code == 200, resp.text
@@ -262,7 +252,7 @@ class TestEndpointsStoreExpiry:
             "/api/upload",
             files={"file": ("note.md", b"# web", "text/markdown")},
             data={"expires_in": "1h"},
-            headers=_unique_ip(),
+            headers=unique_ip(),
         )
 
         assert resp.status_code == 200, resp.text

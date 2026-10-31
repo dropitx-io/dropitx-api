@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from app.dependencies import ApiKeyAuth, User, get_api_key, get_current_user, get_optional_user
 from app.main import app
@@ -47,12 +46,6 @@ def _no_upload_rate_limit(monkeypatch):
         "app.internal.multi_upload",
     ):
         monkeypatch.setattr(f"{module}.check_upload_rate_limit", lambda ip, _ok=ok: _ok)
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture

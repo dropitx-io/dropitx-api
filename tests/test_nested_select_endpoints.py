@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.dependencies import ApiKeyAuth, User, get_api_key, get_current_user, get_optional_user
 from app.main import app
@@ -39,12 +38,6 @@ def seed(db):
     yield add
     for table, key, value in reversed(made):
         db.table(table).delete().eq(key, value).execute()
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
 
 
 def _act_as(uid: str) -> None:
