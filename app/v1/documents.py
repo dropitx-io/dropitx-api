@@ -54,6 +54,8 @@ class DocumentUpdate(BaseModel):
     filename: str | None = None
     title: str | None = None
     is_private: bool | None = None
+    # Not changeable here: only declared so a team key that sends it is refused.
+    password: str | None = Field(default=None, exclude=True)
     # E2E encryption (when updating encrypted content)
     encryption_iv: str | None = None
     encryption_salt: str | None = None
@@ -271,12 +273,19 @@ async def update_document(
     body: DocumentUpdate,
     auth: ApiKeyAuth = Depends(get_api_key),
 ) -> DocumentResponse:
-    """Update an existing document. Saves a revision before updating."""
-    if not body.content and body.filename is None and body.title is None and body.is_private is None:
+    """Update an existing document. Saves a revision before updating.
+
+    A team key may edit an open team share but never reads or changes a private or
+    password-protected one, nor a share's privacy or password.
+    """
+    sets_protection = body.is_private is not None or (auth.team_id is not None and body.password is not None)
+    if not body.content and body.filename is None and body.title is None and not sets_protection:
         raise HTTPException(status_code=400, detail="No fields to update")
 
     client = get_admin_client()
-    row = await find_document(client, slug, auth)
+    row = await find_document(client, slug, auth, for_content=True)
+    if auth.team_id and sets_protection:
+        raise HTTPException(status_code=403, detail="Team keys cannot change a document's privacy or password")
 
     # Save current state as a revision before updating
     if body.content:

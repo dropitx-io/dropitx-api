@@ -154,7 +154,7 @@ async def restore_revision(
     the share's storage and content_text.
     """
     client = get_admin_client()
-    row = await find_document(client, slug, auth)
+    row = await find_document(client, slug, auth, for_content=True)
     share_id = row["id"]
 
     # Fetch the target revision
