@@ -16,7 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
-from app.public._share_auth import authorize_owner
+from app.public._share_auth import authorize_owner, require_share_visible
 from core.encryption import (
     _b64decode,
     _b64encode,
@@ -127,10 +127,15 @@ async def generate_key_endpoint():
     tags=["Encryption"],
     summary="Get share encryption info",
 )
-async def get_encryption_info(slug: str, request: Request):
+async def get_encryption_info(
+    slug: str,
+    request: Request,
+    user: User | None = Depends(get_optional_user),
+):
     """Return encryption metadata for a share (IV, salt, password status).
 
-    Does NOT return any keys — zero-knowledge model.
+    Does NOT return any keys — zero-knowledge model. A private share is 404 for
+    everyone but its owner.
     """
     ip = get_client_ip(request)
     rate = check_public_read_rate_limit(ip)
@@ -142,6 +147,7 @@ async def get_encryption_info(slug: str, request: Request):
         )
 
     row = await _fetch_share_for_encrypt(slug)
+    require_share_visible(row, user)
     return EncryptionInfoResponse(
         encrypted=row.get("encrypted", False),
         encryption_iv=row.get("encryption_iv"),
@@ -177,10 +183,10 @@ async def encrypt_share(
 
     Returns the share URL — caller should append the encryption key fragment.
     """
-    row = await _fetch_share_for_encrypt(slug)
-
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
+
+    row = await _fetch_share_for_encrypt(slug)
 
     authorize_owner(row, user, body.delete_token)
 

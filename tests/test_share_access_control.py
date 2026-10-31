@@ -19,7 +19,7 @@ from tests.conftest import PRIVATE_BODY, PUBLIC_BODY, SECRET_KEYS, act_as, uniqu
 @pytest.fixture
 def missing_share_body(client):
     act_as(None)
-    resp = client.get(f"/api/shares/does-not-exist-{uuid.uuid4().hex}/content")
+    resp = client.get(f"/api/shares/does-not-exist-{uuid.uuid4().hex}/content", headers=unique_ip())
     assert resp.status_code == 404
     return resp.json()
 
@@ -396,3 +396,112 @@ class TestShareFilesListing:
         assert resp.status_code == 200
         assert [f["filename"] for f in resp.json()["files"]] == ["b.html"]
         assert "storage_path" not in set(walk_keys(resp.json()))
+
+
+# ---------------------------------------------------------------------------
+# Status, encryption-info and oEmbed follow the same private rule
+# ---------------------------------------------------------------------------
+
+STATUS_ROUTES = ("download-status", "encryption-info")
+
+
+class TestPrivateShareStatusRoutes:
+    @pytest.mark.parametrize("route", STATUS_ROUTES)
+    def test_anonymous_gets_404_for_private_share(self, client, seed, missing_share_body, route):
+        share = seed.share(seed.user())
+        act_as(None)
+
+        resp = client.get(f"/api/shares/{share['slug']}/{route}", headers=unique_ip())
+
+        assert resp.status_code == 404
+        assert resp.json() == missing_share_body
+
+    @pytest.mark.parametrize("route", STATUS_ROUTES)
+    def test_non_owner_gets_404_for_private_share(self, client, seed, missing_share_body, route):
+        share = seed.share(seed.user())
+        act_as(seed.user())
+
+        resp = client.get(f"/api/shares/{share['slug']}/{route}", headers=unique_ip())
+
+        assert resp.status_code == 404
+        assert resp.json() == missing_share_body
+
+    @pytest.mark.parametrize("route", STATUS_ROUTES)
+    def test_owner_reads_status_of_private_share(self, client, seed, route):
+        owner = seed.user()
+        share = seed.share(owner)
+        act_as(owner)
+
+        resp = client.get(f"/api/shares/{share['slug']}/{route}", headers=unique_ip())
+
+        assert resp.status_code == 200
+
+    @pytest.mark.parametrize("route", STATUS_ROUTES)
+    def test_public_share_status_stays_anonymous(self, client, seed, route):
+        share = seed.share(seed.user(), is_private=False)
+        act_as(None)
+
+        resp = client.get(f"/api/shares/{share['slug']}/{route}", headers=unique_ip())
+
+        assert resp.status_code == 200
+
+    def test_burned_private_share_status_is_404_for_anonymous(self, client, seed, missing_share_body):
+        share = seed.share(seed.user(), burned=True)
+        act_as(None)
+
+        resp = client.get(f"/api/shares/{share['slug']}/download-status", headers=unique_ip())
+
+        assert resp.status_code == 404
+        assert resp.json() == missing_share_body
+
+
+class TestPrivateShareOembed:
+    def _oembed(self, client, slug):
+        return client.get(
+            "/api/oembed", params={"url": f"https://dropitx.example/s/{slug}"}, headers=unique_ip()
+        )
+
+    def test_anonymous_gets_404_for_private_share(self, client, seed):
+        share = seed.share(seed.user())
+        act_as(None)
+
+        resp = self._oembed(client, share["slug"])
+        missing = self._oembed(client, f"does-not-exist-{uuid.uuid4().hex}")
+
+        assert resp.status_code == 404
+        assert resp.json() == missing.json()
+
+    def test_owner_gets_404_for_private_share_too(self, client, seed):
+        owner = seed.user()
+        share = seed.share(owner)
+        act_as(owner)
+
+        assert self._oembed(client, share["slug"]).status_code == 404
+
+    def test_public_share_is_embeddable(self, client, seed):
+        share = seed.share(seed.user(), is_private=False)
+        act_as(None)
+
+        resp = self._oembed(client, share["slug"])
+
+        assert resp.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Sign-in is demanded before the share is looked up
+# ---------------------------------------------------------------------------
+
+class TestAuthBeforeLookup:
+    @pytest.mark.parametrize("method, route, body", [
+        ("DELETE", "", None),
+        ("POST", "/burn", None),
+        ("POST", "/encrypt", {"password": "hunter2"}),
+    ])
+    def test_anonymous_without_token_gets_401_for_missing_share(self, client, method, route, body):
+        act_as(None)
+
+        resp = client.request(
+            method, f"/api/shares/does-not-exist-{uuid.uuid4().hex}{route}", json=body, headers=unique_ip()
+        )
+
+        assert resp.status_code == 401

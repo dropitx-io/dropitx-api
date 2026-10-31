@@ -411,11 +411,12 @@ async def delete_share(
 ):
     """Delete a share. Auth: owner cookie OR delete_token in body."""
     body = body or DeleteShareRequest()
-    row = await _fetch_share(slug)
 
     # If no JWT user, we still allow delete_token
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
+
+    row = await _fetch_share(slug)
 
     authorize_owner(row, user, body.delete_token)
     await _delete_share_row(row)
@@ -549,15 +550,16 @@ async def burn_share(
     Auth: owner cookie OR delete_token in body.
     """
     body = body or BurnShareRequest()
+
+    # Authorization: require owner or delete_token, before any lookup
+    if user is None and not body.delete_token:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
     row = await _fetch_share(slug)
 
     # Check if already burned
     if row.get("burned"):
         raise HTTPException(status_code=410, detail="Share has already been burned")
-
-    # Authorization: require owner or delete_token
-    if user is None and not body.delete_token:
-        raise HTTPException(status_code=401, detail="Authentication required")
 
     authorize_owner(row, user, body.delete_token)
 
@@ -676,8 +678,14 @@ async def download_share(
 # ---------------------------------------------------------------------------
 
 @router.get("/shares/{slug}/download-status", tags=["Shares"], summary="Check download status")
-async def get_download_status(slug: str, request: Request):
+async def get_download_status(
+    slug: str,
+    request: Request,
+    user: User | None = Depends(get_optional_user),
+):
     """Check if a share is available for download.
+
+    A private share is 404 for everyone but its owner, before any status is reported.
 
     Returns status info including:
     - available: whether the file can still be downloaded
@@ -701,7 +709,7 @@ async def get_download_status(slug: str, request: Request):
     try:
         resp = await asyncio.to_thread(
             lambda: client.table("shares")
-            .select("slug,one_time_download,download_count,max_downloads,burn_after_reading,expires_at,burned")
+            .select("slug,is_private,user_id,one_time_download,download_count,max_downloads,burn_after_reading,expires_at,burned")
             .eq("slug", slug)
             .execute()
         )
@@ -714,6 +722,7 @@ async def get_download_status(slug: str, request: Request):
         raise HTTPException(status_code=404, detail="Share not found")
 
     row = rows[0]
+    require_share_visible(row, user)
 
     # Check if burned
     if row.get("burned"):
