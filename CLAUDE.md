@@ -63,7 +63,7 @@ For a comprehensive API reference (90+ endpoints across health, documents, keys,
 - **`infra/init/`** — `01_schema.sql`, `02_rpc_functions.sql`, `03_analytics.sql` (applied in lexical order), mounted into the local Postgres container's `docker-entrypoint-initdb.d`. This is the source of truth for a fresh local DB and runs automatically on first `docker compose up -d`.
 - **`supabase/migrations/`** — the original Supabase-cloud schema history (base schema + feature migrations), from before the local-Postgres migration.
 - **`migrations/`** — later incremental SQL patches (encryption columns, burn-after-reading, revisions, custom domains, etc.) layered on top of either backend.
-- When adding a schema change: update `infra/init/` (or add a new file there) for local dev, and check whether it also needs mirroring for the Supabase-cloud path (Auth still lives there).
+- When adding a schema change: edit `infra/init/` (or add a new file there). It is the only schema authority: production applies it once to an empty Postgres, so there are no migrations to write and nothing to mirror in `supabase/migrations/` or `migrations/`.
 - **`k8s/`** — Kubernetes manifests for the local-Postgres/MinIO stack, including `auth-stub.sql` which stubs `auth.users`/`auth.uid()`/`auth.role()` on vanilla Postgres so migrations written for Supabase (which reference `auth.*`) still apply.
 
 ### Patterns

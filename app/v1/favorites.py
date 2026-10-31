@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -30,6 +31,24 @@ def _share_not_found() -> HTTPException:
     return HTTPException(status_code=404, detail="Share not found")
 
 
+def _has_expired(share: dict) -> bool:
+    expires_at = share.get("expires_at")
+    if not expires_at:
+        return False
+    if isinstance(expires_at, str):
+        expires_at = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    return expires_at <= datetime.now(timezone.utc)
+
+
+def _is_favorable(share: dict, user: User) -> bool:
+    """Whether `user` still sees `share` as a favorite: visible to them and, unless they own it, not burned or expired."""
+    if not can_view_share(share, user):
+        return False
+    if share.get("user_id") == user.id:
+        return True
+    return not share.get("burned") and not _has_expired(share)
+
+
 async def _visible_share_id(share_id: str, user: User) -> str:
     """The normalized id of a share `user` may view; 404, the same for every cause, otherwise."""
     try:
@@ -51,7 +70,8 @@ async def _visible_share_id(share_id: str, user: User) -> str:
 
 @router.get("", response_model=list[FavoriteShare], summary="List favorites")
 async def list_favorites(user: User = Depends(get_current_user)):
-    """The caller's favorites, newest first. Shares that are no longer visible to them are omitted."""
+    """The caller's favorites, newest first. Shares that are no longer visible to them, or that
+    someone else's burn or expiry ended, are omitted."""
     client = get_admin_client()
     favs = await asyncio.to_thread(
         lambda: client.table("favorites")
@@ -76,7 +96,7 @@ async def list_favorites(user: User = Depends(get_current_user)):
     items = []
     for fav in fav_rows:
         share = by_id.get(str(fav["share_id"]))
-        if share is None or not can_view_share(share, user):
+        if share is None or not _is_favorable(share, user):
             continue
         items.append(
             FavoriteShare.from_favorite(
@@ -88,6 +108,7 @@ async def list_favorites(user: User = Depends(get_current_user)):
 
 @router.get("/{share_id}", response_model=FavoriteStatus, summary="Is this share a favorite")
 async def get_favorite(share_id: str, user: User = Depends(get_current_user)):
+    """Whether the share is a favorite; false once it is no longer visible and live to the caller."""
     try:
         normalized = str(uuid.UUID(share_id))
     except ValueError:
@@ -100,7 +121,16 @@ async def get_favorite(share_id: str, user: User = Depends(get_current_user)):
         .eq("share_id", normalized)
         .execute()
     )
-    return FavoriteStatus(favorited=bool(resp.data))
+    if not resp.data:
+        return FavoriteStatus(favorited=False)
+    shares = await asyncio.to_thread(
+        lambda: client.table("shares")
+        .select("id, user_id, is_private, burned, expires_at")
+        .eq("id", normalized)
+        .execute()
+    )
+    share = (shares.data or [None])[0]
+    return FavoriteStatus(favorited=share is not None and _is_favorable(share, user))
 
 
 @router.post("/{share_id}", response_model=FavoriteStatus, summary="Add a favorite")

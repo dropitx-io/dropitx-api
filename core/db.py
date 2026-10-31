@@ -39,7 +39,10 @@ logger = logging.getLogger(__name__)
 
 _loop: asyncio.AbstractEventLoop | None = None
 _loop_thread: threading.Thread | None = None
+_loop_lock = threading.Lock()
 _pool: asyncpg.Pool | None = None
+# Created lazily on the background loop, which runs every coroutine that uses it.
+_pool_lock: asyncio.Lock | None = None
 
 
 def _start_background_loop():
@@ -48,23 +51,25 @@ def _start_background_loop():
     if _loop is not None and _loop.is_running():
         return _loop
 
-    def _run_loop():
-        global _loop
-        _loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(_loop)
-        _loop.run_forever()
-
-    _loop_thread = threading.Thread(target=_run_loop, daemon=True)
-    _loop_thread.start()
-
-    # Wait for loop to be ready
-    import time
-    for _ in range(100):
+    with _loop_lock:
         if _loop is not None and _loop.is_running():
             return _loop
-        time.sleep(0.01)
 
-    raise RuntimeError("Failed to start background event loop")
+        loop = asyncio.new_event_loop()
+        ready = threading.Event()
+
+        def _run_loop():
+            asyncio.set_event_loop(loop)
+            loop.call_soon(ready.set)
+            loop.run_forever()
+
+        thread = threading.Thread(target=_run_loop, name="db-event-loop", daemon=True)
+        thread.start()
+        if not ready.wait(timeout=1):
+            raise RuntimeError("Failed to start background event loop")
+
+        _loop, _loop_thread = loop, thread
+        return loop
 
 
 def _run_async(coro):
@@ -75,14 +80,19 @@ def _run_async(coro):
 
 
 async def _get_pool() -> asyncpg.Pool:
-    global _pool
-    if _pool is None or _pool._closed:
-        _pool = await asyncpg.create_pool(
-            dsn=settings.database_url,
-            min_size=2,
-            max_size=10,
-            command_timeout=30,
-        )
+    global _pool, _pool_lock
+    if _pool is not None and not _pool._closed:
+        return _pool
+    if _pool_lock is None:
+        _pool_lock = asyncio.Lock()
+    async with _pool_lock:
+        if _pool is None or _pool._closed:
+            _pool = await asyncpg.create_pool(
+                dsn=settings.database_url,
+                min_size=2,
+                max_size=10,
+                command_timeout=30,
+            )
     return _pool
 
 
@@ -420,12 +430,18 @@ class QueryBuilder:
                 parts.append(f"{col} {op}")
                 continue
             if op == "IN":
+                if not val:
+                    # `IN ()` is a syntax error; an empty set matches nothing.
+                    idx -= 1
+                    parts.append("TRUE" if negated else "FALSE")
+                    continue
                 ph = ", ".join(f"${idx + j}" for j in range(len(val)))
                 clause = f"{col} IN ({ph})"
                 params.extend(val)
                 idx += len(val) - 1
             elif op in ("@>", "&&"):
-                params.append(val if isinstance(val, str) else json.dumps(val))
+                # Lists bind as arrays; only a dict is a jsonb document.
+                params.append(json.dumps(val) if isinstance(val, dict) else val)
                 clause = f"{col} {op} ${idx}"
             else:
                 params.append(val)

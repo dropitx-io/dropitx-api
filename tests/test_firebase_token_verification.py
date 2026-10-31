@@ -11,6 +11,7 @@ import time
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -20,6 +21,7 @@ from fastapi.exceptions import HTTPException
 from jose import jwt
 
 from app.dependencies import get_current_user, get_firebase_claims, get_optional_user
+from tests.conftest import unique_ip
 
 PROJECT = "test-project"
 ID_TOKEN_ISSUER = f"https://securetoken.google.com/{PROJECT}"
@@ -224,7 +226,10 @@ def test_each_key_set_has_its_own_cache(certs, id_key, session_key):
     assert certs.calls.count(ID_CERTS_URL) == 1
 
 
-def test_unknown_kid_refetches_its_own_key_set_once(certs, session_key):
+def test_unknown_kid_refetches_its_own_key_set_once(certs, session_key, monkeypatch):
+    from core import security
+
+    monkeypatch.setattr(security, "_CERTS_REFETCH_MIN_INTERVAL", 0)
     rotated = _Keypair()
     _claims(_token(session_key, SESSION_ISSUER))
     certs.certs_by_url[SESSION_CERTS_URL] = {KID: session_key.cert_pem, "kid-2": rotated.cert_pem}
@@ -233,3 +238,81 @@ def test_unknown_kid_refetches_its_own_key_set_once(certs, session_key):
 
     assert claims["sub"] == "uid-1"
     assert certs.calls == [SESSION_CERTS_URL, SESSION_CERTS_URL]
+
+
+def _token_without(key, issuer, claim):
+    now = int(time.time())
+    claims = {
+        "iss": issuer,
+        "aud": PROJECT,
+        "sub": "uid-1",
+        "iat": now - 10,
+        "auth_time": now - 10,
+        "exp": now + 3600,
+    }
+    del claims[claim]
+    return jwt.encode(claims, key.private_pem, algorithm="RS256", headers={"kid": KID})
+
+
+@pytest.mark.parametrize("claim", ["exp", "aud"])
+def test_token_missing_a_required_claim_is_rejected(assert_rejected, session_key, claim):
+    assert_rejected(_token_without(session_key, SESSION_ISSUER, claim))
+
+
+def test_unknown_kid_within_the_refetch_interval_does_not_refetch(certs, session_key):
+    stranger = _Keypair()
+    _claims(_token(session_key, SESSION_ISSUER))
+
+    for _ in range(2):
+        with pytest.raises(HTTPException) as exc:
+            _claims(_token(stranger, SESSION_ISSUER, kid="unknown-kid"))
+        assert exc.value.status_code == 401
+
+    assert certs.calls == [SESSION_CERTS_URL]
+
+
+def test_unknown_kid_after_the_refetch_interval_refetches(certs, session_key, monkeypatch):
+    from core import security
+
+    _claims(_token(session_key, SESSION_ISSUER))
+    session_kind = next(k for k in security._TOKEN_KINDS if k.certs_url == SESSION_CERTS_URL)
+    session_kind.last_fetch_at -= security._CERTS_REFETCH_MIN_INTERVAL
+    rotated = _Keypair()
+    certs.certs_by_url[SESSION_CERTS_URL] = {KID: session_key.cert_pem, "kid-2": rotated.cert_pem}
+
+    claims = _claims(_token(rotated, SESSION_ISSUER, kid="kid-2"))
+
+    assert claims["sub"] == "uid-1"
+    assert certs.calls == [SESSION_CERTS_URL, SESSION_CERTS_URL]
+
+
+@pytest.fixture
+def cert_outage(monkeypatch):
+    """Google's cert endpoint is unreachable and nothing is cached."""
+    from core import security
+
+    importlib.reload(security)
+    monkeypatch.setattr(security, "settings", SimpleNamespace(firebase_project_id=PROJECT))
+
+    def unreachable(url, timeout=None):
+        raise httpx.ConnectError("cert endpoint unreachable")
+
+    monkeypatch.setattr("httpx.get", unreachable)
+
+
+def test_cert_outage_is_a_503_for_required_auth(cert_outage, session_key):
+    with pytest.raises(HTTPException) as exc:
+        _claims(_token(session_key, SESSION_ISSUER))
+    assert exc.value.status_code == 503
+    assert exc.value.detail == "Auth provider unavailable"
+
+
+def test_cert_outage_degrades_public_routes_to_anonymous(cert_outage, session_key, client, seed):
+    share = seed.share(seed.user(), is_private=False)
+    headers = {"authorization": f"Bearer {_token(session_key, SESSION_ISSUER)}"}
+
+    public = client.get(f"/api/shares/{share['slug']}", headers={**headers, **unique_ip()})
+    dashboard = client.get("/api/dashboard/shares", headers={**headers, **unique_ip()})
+
+    assert public.status_code == 200
+    assert dashboard.status_code == 503

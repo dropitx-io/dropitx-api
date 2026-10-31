@@ -10,26 +10,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.main import app
 from core.db import _get_pool, _run_async
-from tests.test_share_access_control import _act_as, _Seed, _walk_keys
+from tests.conftest import Seed, act_as, walk_keys
 
 SECRET_KEYS = {"password_hash", "delete_token", "content", "content_text", "storage_path", "user_id"}
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def seed():
-    s = _Seed()
-    yield s
-    s.cleanup()
 
 
 async def _execute(sql: str, *args):
@@ -38,7 +24,7 @@ async def _execute(sql: str, *args):
         await conn.execute(sql, *args)
 
 
-def _insert_share(seed: _Seed, owner, **fields) -> dict:
+def _insert_share(seed: Seed, owner, **fields) -> dict:
     """A share row with no storage object: analytics never reads content."""
     row = {
         "slug": f"an-{uuid.uuid4().hex[:12]}",
@@ -89,7 +75,7 @@ class TestTopShares:
         _add_view(middling, days_ago=45)  # outside the 30-day ranking window
         for _ in range(9):
             _add_view(theirs)
-        _act_as(me)
+        act_as(me)
 
         resp = client.get("/api/dashboard/analytics/top-shares")
 
@@ -105,13 +91,13 @@ class TestTopShares:
         }
         assert (top[1]["total_views"], top[1]["unique_views"]) == (1, 1)
         assert (top[2]["title"], top[2]["total_views"], top[2]["unique_views"]) == ("quiet.md", 0, 0)
-        assert not SECRET_KEYS & set(_walk_keys(resp.json()))
+        assert not SECRET_KEYS & set(walk_keys(resp.json()))
 
     def test_limit_defaults_to_ten_and_caps_the_list(self, client, seed):
         me = seed.user()
         for _ in range(12):
             _insert_share(seed, me)
-        _act_as(me)
+        act_as(me)
 
         assert len(client.get("/api/dashboard/analytics/top-shares").json()["top"]) == 10
         assert len(client.get("/api/dashboard/analytics/top-shares?limit=3").json()["top"]) == 3
@@ -119,7 +105,7 @@ class TestTopShares:
 
     @pytest.mark.parametrize("limit", ["0", "-1", "51", "abc", ""])
     def test_limit_outside_bounds_is_rejected(self, client, seed, limit):
-        _act_as(seed.user())
+        act_as(seed.user())
 
         assert client.get(f"/api/dashboard/analytics/top-shares?limit={limit}").status_code == 422
 
@@ -131,21 +117,51 @@ class TestTopShares:
         _insert_share(seed, me, view_count=2, file_size=25, expires_at=_past(3))
         _insert_share(seed, me, view_count=4, file_size=10, burned=True)
         _insert_share(seed, other, view_count=1000, file_size=1_000_000)
-        _act_as(me)
+        act_as(me)
 
         body = client.get("/api/dashboard/analytics/top-shares?limit=2").json()
 
         assert len(body["top"]) == 2
-        assert body["totals"] == {"share_count": 5, "total_views": 22, "total_size": 185}
+        assert body["totals"] == {
+            "share_count": 5, "total_views": 22, "total_size": 185,
+            "unique_views": 0, "shares_with_views": 0,
+        }
+
+    def test_totals_count_recent_views_across_every_share(self, client, seed):
+        me, other = seed.user(), seed.user()
+        ranked = _insert_share(seed, me)
+        expired = _insert_share(seed, me, expires_at=_past(3))
+        hidden = _insert_share(seed, me, is_private=True, burned=True)
+        _insert_share(seed, me)  # never viewed
+        stale = _insert_share(seed, me)
+        theirs = _insert_share(seed, other)
+        _add_view(ranked)
+        _add_view(ranked)
+        _add_view(ranked, unique=False)
+        _add_view(expired)
+        _add_view(hidden, days_ago=3, unique=False)
+        _add_view(stale, days_ago=45)  # outside the 30-day window
+        for _ in range(5):
+            _add_view(theirs)
+        act_as(me)
+
+        body = client.get("/api/dashboard/analytics/top-shares?limit=1").json()
+
+        assert [t["slug"] for t in body["top"]] == [ranked["slug"]]
+        assert body["totals"]["unique_views"] == 3
+        assert body["totals"]["shares_with_views"] == 3
 
     def test_user_without_shares_gets_zero_totals_and_no_rows(self, client, seed):
-        _act_as(seed.user())
+        act_as(seed.user())
 
         resp = client.get("/api/dashboard/analytics/top-shares")
 
         assert resp.status_code == 200
         assert resp.json() == {
-            "totals": {"share_count": 0, "total_views": 0, "total_size": 0},
+            "totals": {
+                "share_count": 0, "total_views": 0, "total_size": 0,
+                "unique_views": 0, "shares_with_views": 0,
+            },
             "top": [],
         }
 
@@ -172,7 +188,7 @@ class TestShareAnalytics:
     def test_owner_gets_summary_timeseries_referrers_and_geo(self, client, seed):
         me = seed.user()
         share = self._seeded_share(seed, me)
-        _act_as(me)
+        act_as(me)
 
         resp = client.get(f"/api/dashboard/shares/{share['slug']}/analytics")
 
@@ -204,12 +220,12 @@ class TestShareAnalytics:
             {"country_code": "VN", "views": 2},
             {"country_code": "US", "views": 1},
         ]
-        assert not SECRET_KEYS & set(_walk_keys(body))
+        assert not SECRET_KEYS & set(walk_keys(body))
 
     def test_days_narrows_every_section(self, client, seed):
         me = seed.user()
         share = self._seeded_share(seed, me)
-        _act_as(me)
+        act_as(me)
 
         body = client.get(f"/api/dashboard/shares/{share['slug']}/analytics?days=1").json()
 
@@ -223,7 +239,7 @@ class TestShareAnalytics:
     def test_days_bounds_are_inclusive(self, client, seed, days):
         me = seed.user()
         share = _insert_share(seed, me)
-        _act_as(me)
+        act_as(me)
 
         resp = client.get(f"/api/dashboard/shares/{share['slug']}/analytics?days={days}")
 
@@ -234,7 +250,7 @@ class TestShareAnalytics:
     def test_days_outside_bounds_is_rejected(self, client, seed, days):
         me = seed.user()
         share = _insert_share(seed, me)
-        _act_as(me)
+        act_as(me)
 
         resp = client.get(f"/api/dashboard/shares/{share['slug']}/analytics?days={days}")
 
@@ -243,7 +259,7 @@ class TestShareAnalytics:
     def test_share_without_views_returns_zeros_and_empty_lists(self, client, seed):
         me = seed.user()
         share = _insert_share(seed, me, title=None, filename="empty.md")
-        _act_as(me)
+        act_as(me)
 
         resp = client.get(f"/api/dashboard/shares/{share['slug']}/analytics?days=7")
 
@@ -262,7 +278,7 @@ class TestShareAnalytics:
         me = seed.user()
         expired = _insert_share(seed, me, expires_at=_past(2))
         burned = _insert_share(seed, me, burned=True)
-        _act_as(me)
+        act_as(me)
 
         for share in (expired, burned):
             assert client.get(f"/api/dashboard/shares/{share['slug']}/analytics").status_code == 200
@@ -274,7 +290,7 @@ class TestShareAnalytics:
         seed.team_with_share(teammate, private)
 
         for viewer, share in ((stranger, private), (stranger, public), (teammate, private)):
-            _act_as(viewer)
+            act_as(viewer)
             missing = client.get("/api/dashboard/shares/no-such-slug-here/analytics")
             resp = client.get(f"/api/dashboard/shares/{share['slug']}/analytics")
             assert missing.status_code == 404
@@ -285,14 +301,14 @@ class TestShareAnalytics:
         me = seed.user()
         share = _insert_share(seed, me)
         seed.db.table("shares").update({"user_id": None}).eq("id", share["id"]).execute()
-        _act_as(me)
+        act_as(me)
 
         assert client.get(f"/api/dashboard/shares/{share['slug']}/analytics").status_code == 404
 
     def test_share_list_route_is_unaffected(self, client, seed):
         me = seed.user()
         share = _insert_share(seed, me)
-        _act_as(me)
+        act_as(me)
 
         listing = client.get("/api/dashboard/shares")
 

@@ -39,8 +39,11 @@ async def _fetch_group(slug: str) -> dict:
 async def _fetch_group_shares(group_slug: str, user: User | None) -> list[dict]:
     """Fetch the non-expired shares of a group that `user` may take.
 
-    Private shares need their owner; password-protected shares are left out for
-    everyone but their owner because this endpoint has no way to take a password.
+    Private shares need their owner. For everyone but their owner, password-protected
+    and encrypted shares are left out because this endpoint has no way to take a
+    password, and so are shares that count or limit access (burn-after-reading,
+    one-time, max downloads) or are already burned, because a ZIP would take them
+    without counting.
     """
     client = get_admin_client()
     resp = await asyncio.to_thread(
@@ -63,7 +66,15 @@ async def _fetch_group_shares(group_slug: str, user: User | None) -> list[dict]:
                 continue
         if not can_view_share(row, user):
             continue
-        if row.get("password_hash") and not (user is not None and user.id == row.get("user_id")):
+        is_owner = user is not None and user.id == row.get("user_id")
+        if not is_owner and (
+            row.get("password_hash")
+            or row.get("encrypted")
+            or row.get("burn_after_reading")
+            or row.get("one_time_download")
+            or row.get("burned")
+            or row.get("max_downloads") is not None
+        ):
             continue
         valid.append(row)
     return valid

@@ -28,6 +28,9 @@ class ShareTotals(BaseModel):
     share_count: int = 0
     total_views: int = 0
     total_size: int = 0
+    # Over the last 30 days of views on any of the caller's shares.
+    unique_views: int = 0
+    shares_with_views: int = 0
 
 
 class TopShare(BaseModel):

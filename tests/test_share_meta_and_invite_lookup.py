@@ -9,30 +9,16 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.dependencies import get_optional_claims
 from app.main import app
 from core.rate_limit import RateLimitResult
 from core.security import hash_password
 from core.supabase import get_admin_client
-from tests.test_share_access_control import PRIVATE_BODY, _act_as, _Seed, _walk_keys
+from tests.conftest import PRIVATE_BODY, Seed, act_as, walk_keys
 
 SECRET_KEYS = {"password_hash", "delete_token", "content", "content_text", "storage_path"}
 BODY = "<h1>meta body</h1>"
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def seed():
-    s = _Seed()
-    yield s
-    s.cleanup()
 
 
 def _claims_as(email: str | None, *, verified: bool) -> None:
@@ -64,7 +50,7 @@ class TestShareMeta:
         share = seed.share(
             owner, body=BODY, is_private=False, language="html", file_size=len(BODY),
         )
-        _act_as(None)
+        act_as(None)
 
         resp = client.get(f"/api/shares/{share['slug']}")
 
@@ -87,7 +73,7 @@ class TestShareMeta:
         assert body["group_id"] is None
         assert body["group_files"] == []
         assert body["created_at"] and body["expires_at"] is None
-        assert not SECRET_KEYS & set(_walk_keys(body))
+        assert not SECRET_KEYS & set(walk_keys(body))
         assert BODY not in resp.text
         assert "user_id" not in body
 
@@ -95,7 +81,7 @@ class TestShareMeta:
         owner = seed.user()
         owned = seed.share(owner, is_private=False)
         orphan = seed.share(owner, is_private=False, user_id=None)
-        _act_as(None)
+        act_as(None)
 
         owned_body = client.get(f"/api/shares/{owned['slug']}").json()
         orphan_body = client.get(f"/api/shares/{orphan['slug']}").json()
@@ -108,10 +94,10 @@ class TestShareMeta:
         owner, other = seed.user(), seed.user()
         share = seed.share(owner, body=BODY, is_private=False)
 
-        _act_as(owner)
+        act_as(owner)
         assert client.get(f"/api/shares/{share['slug']}").json()["is_owner"] is True
 
-        _act_as(other)
+        act_as(other)
         assert client.get(f"/api/shares/{share['slug']}").json()["is_owner"] is False
 
     def test_private_share_is_hidden_from_everyone_but_the_owner(self, client, seed):
@@ -119,7 +105,7 @@ class TestShareMeta:
         share = seed.share(owner)
         seed.team_with_share(teammate, share)
 
-        _act_as(None)
+        act_as(None)
         missing = client.get(f"/api/shares/does-not-exist-{uuid.uuid4().hex}")
         assert missing.status_code == 404
         anon = client.get(f"/api/shares/{share['slug']}")
@@ -127,12 +113,12 @@ class TestShareMeta:
         assert anon.json() == missing.json()
 
         for viewer in (other, teammate):
-            _act_as(viewer)
+            act_as(viewer)
             resp = client.get(f"/api/shares/{share['slug']}")
             assert resp.status_code == 404
             assert resp.json() == missing.json()
 
-        _act_as(owner)
+        act_as(owner)
         resp = client.get(f"/api/shares/{share['slug']}")
         assert resp.status_code == 200
         assert resp.json()["is_private"] is True
@@ -143,7 +129,7 @@ class TestShareMeta:
         owner = seed.user()
         pw_hash = hash_password("hunter2")
         share = seed.share(owner, is_private=False, password_hash=pw_hash)
-        _act_as(None)
+        act_as(None)
 
         resp = client.get(f"/api/shares/{share['slug']}")
 
@@ -151,7 +137,7 @@ class TestShareMeta:
         body = resp.json()
         assert body["has_password"] is True
         assert body["is_private"] is False
-        keys = set(_walk_keys(body))
+        keys = set(walk_keys(body))
         assert "password_hash" not in keys and "delete_token" not in keys
         assert pw_hash not in resp.text
         assert share["delete_token"] not in resp.text
@@ -165,7 +151,7 @@ class TestShareMeta:
         seed.share(owner, is_private=False, group_id=group, expires_at=_past())
         seed.share(owner, is_private=False, group_id=group, burned=True)
 
-        _act_as(other)
+        act_as(other)
         resp = client.get(f"/api/shares/{first['slug']}")
 
         assert resp.status_code == 200
@@ -178,7 +164,7 @@ class TestShareMeta:
             "has_password",
         }
         assert listed["file_size"] == 20 and listed["max_downloads"] == 3
-        assert not SECRET_KEYS & set(_walk_keys(body))
+        assert not SECRET_KEYS & set(walk_keys(body))
 
     def test_password_sibling_is_listed_with_has_password(self, client, seed):
         owner, other = seed.user(), seed.user()
@@ -188,7 +174,7 @@ class TestShareMeta:
         locked = seed.share(owner, is_private=False, group_id=group, password_hash=pw_hash)
         seed.share(owner, is_private=False, group_id=group, burned=True)
 
-        _act_as(other)
+        act_as(other)
         resp = client.get(f"/api/shares/{open_file['slug']}")
 
         by_slug = {f["slug"]: f for f in resp.json()["group_files"]}
@@ -204,7 +190,7 @@ class TestShareMeta:
         private = seed.share(owner, is_private=True, group_id=group)
         locked = seed.share(owner, is_private=False, group_id=group, password_hash=hash_password("pw"))
 
-        _act_as(owner)
+        act_as(owner)
         body = client.get(f"/api/shares/{public['slug']}").json()
 
         assert {f["slug"] for f in body["group_files"]} == {
@@ -213,7 +199,7 @@ class TestShareMeta:
 
     def test_expired_share_is_410_and_is_not_deleted(self, client, seed):
         share = seed.share(seed.user(), is_private=False, expires_at=_past())
-        _act_as(None)
+        act_as(None)
 
         resp = client.get(f"/api/shares/{share['slug']}")
 
@@ -222,13 +208,13 @@ class TestShareMeta:
 
     def test_expired_private_share_is_404_for_a_stranger(self, client, seed):
         share = seed.share(seed.user(), is_private=True, expires_at=_past())
-        _act_as(None)
+        act_as(None)
 
         assert client.get(f"/api/shares/{share['slug']}").status_code == 404
 
     def test_burned_share_reports_burned(self, client, seed):
         share = seed.share(seed.user(), is_private=False, burn_after_reading=True, burned=True)
-        _act_as(None)
+        act_as(None)
 
         resp = client.get(f"/api/shares/{share['slug']}")
 
@@ -238,7 +224,7 @@ class TestShareMeta:
 
     def test_repeated_metadata_calls_do_not_count_as_views(self, client, seed):
         share = seed.share(seed.user(), body=BODY, is_private=False)
-        _act_as(None)
+        act_as(None)
 
         for _ in range(2):
             assert client.get(f"/api/shares/{share['slug']}").status_code == 200
@@ -249,7 +235,7 @@ class TestShareMeta:
 
     def test_burn_after_reading_share_survives_metadata_calls(self, client, seed):
         share = seed.share(seed.user(), body=BODY, is_private=False, burn_after_reading=True)
-        _act_as(None)
+        act_as(None)
 
         for _ in range(2):
             meta = client.get(f"/api/shares/{share['slug']}")
@@ -262,7 +248,7 @@ class TestShareMeta:
 
     def test_rate_limited_caller_gets_429_before_any_lookup(self, client, seed, monkeypatch):
         share = seed.share(seed.user(), is_private=False)
-        _act_as(None)
+        act_as(None)
         monkeypatch.setattr(
             "app.public.shares.check_share_meta_rate_limit",
             lambda ip: RateLimitResult(success=False, limit=300, remaining=0, reset=30),
@@ -276,7 +262,7 @@ class TestShareMeta:
     def test_neighbouring_share_routes_are_not_shadowed(self, client, seed):
         owner = seed.user()
         share = seed.share(owner, body=BODY, is_private=False)
-        _act_as(owner)
+        act_as(owner)
 
         content = client.get(f"/api/shares/{share['slug']}/content")
         status = client.get(f"/api/shares/{share['slug']}/download-status")
@@ -287,7 +273,7 @@ class TestShareMeta:
         assert status.status_code == 200 and "download_count" in status.json()
         assert versions.status_code == 200
         assert meta.status_code == 200 and "slug" in meta.json()
-        assert "content" not in set(_walk_keys(meta.json()))
+        assert "content" not in set(walk_keys(meta.json()))
 
         assert client.delete(f"/api/shares/{share['slug']}").status_code == 200
         assert client.get(f"/api/shares/{share['slug']}").status_code == 404
@@ -298,7 +284,7 @@ class TestShareMeta:
 # ---------------------------------------------------------------------------
 
 class _InviteSeed:
-    def __init__(self, seed: _Seed):
+    def __init__(self, seed: Seed):
         self.seed = seed
         self.db = seed.db
 
@@ -330,7 +316,7 @@ def invites(seed):
 class TestInviteLookup:
     def test_valid_invite_returns_accept_page_data_for_an_anonymous_caller(self, client, invites):
         invite = invites.invite(role="viewer")
-        _act_as(None)
+        act_as(None)
 
         resp = client.get(f"/api/invites/{invite['token']}")
 
@@ -351,13 +337,13 @@ class TestInviteLookup:
     def test_invitee_email_is_returned_only_to_a_verified_matching_caller(self, client, invites):
         invite = invites.invite()
 
-        _act_as(None)
+        act_as(None)
         _claims_as(f"  {invite['email'].upper()} ", verified=True)
         body = client.get(f"/api/invites/{invite['token']}").json()
         assert body["invitee_email"] == invite["email"]
         assert body["email_matches"] is True
 
-        _act_as(None)
+        act_as(None)
         _claims_as(f"other-{uuid.uuid4().hex[:8]}@example.com", verified=True)
         resp = client.get(f"/api/invites/{invite['token']}")
         assert resp.json()["email_matches"] is False
@@ -367,7 +353,7 @@ class TestInviteLookup:
     @pytest.mark.parametrize("claim", [False, None])
     def test_unverified_matching_email_is_not_a_match(self, client, invites, claim):
         invite = invites.invite()
-        _act_as(None)
+        act_as(None)
         app.dependency_overrides[get_optional_claims] = lambda: {
             "sub": "u-unverified", "email": invite["email"], "email_verified": claim,
         }
@@ -380,7 +366,7 @@ class TestInviteLookup:
         assert invite["email"] not in resp.text
 
     def test_unknown_token_is_404(self, client):
-        _act_as(None)
+        act_as(None)
 
         resp = client.get(f"/api/invites/nope-{uuid.uuid4().hex}")
 
@@ -388,7 +374,7 @@ class TestInviteLookup:
 
     def test_expired_invite_is_410(self, client, invites):
         invite = invites.invite(expires_at=_past())
-        _act_as(None)
+        act_as(None)
 
         resp = client.get(f"/api/invites/{invite['token']}")
 
@@ -397,7 +383,7 @@ class TestInviteLookup:
     @pytest.mark.parametrize("status", ["accepted", "declined", "revoked"])
     def test_settled_invite_reports_its_status(self, client, invites, status):
         invite = invites.invite(status=status)
-        _act_as(None)
+        act_as(None)
 
         resp = client.get(f"/api/invites/{invite['token']}")
 
@@ -406,7 +392,7 @@ class TestInviteLookup:
 
     def test_lookup_does_not_change_the_invite(self, client, invites):
         invite = invites.invite()
-        _act_as(None)
+        act_as(None)
 
         client.get(f"/api/invites/{invite['token']}")
         client.get(f"/api/invites/{invite['token']}")
@@ -428,7 +414,7 @@ class TestPublicProfileShares:
         ).execute()
         public = seed.share(owner, is_private=False, view_count=7)
         seed.share(owner, is_private=True)
-        _act_as(None)
+        act_as(None)
 
         profile = client.get(f"/api/u/{username}")
         listing = client.get(f"/api/u/{username}/shares")

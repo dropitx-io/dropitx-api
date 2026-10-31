@@ -72,7 +72,7 @@ async def oembed(
     try:
         share_resp = await asyncio.to_thread(
             lambda: client.table("shares")
-            .select("id, slug, filename, title, user_id, mime_type, created_at")
+            .select("id, slug, filename, title, user_id, mime_type, created_at, is_private")
             .eq("slug", slug)
             .execute()
         )
@@ -81,7 +81,8 @@ async def oembed(
         raise HTTPException(status_code=500, detail="Internal error") from exc
 
     rows = share_resp.data or []
-    if not rows:
+    # A private share is not embeddable, so it is reported like a missing one.
+    if not rows or rows[0].get("is_private"):
         raise HTTPException(status_code=404, detail="Share not found")
 
     share = rows[0]

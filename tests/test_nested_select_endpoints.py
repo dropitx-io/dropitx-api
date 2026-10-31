@@ -10,7 +10,6 @@ from __future__ import annotations
 import uuid
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.dependencies import ApiKeyAuth, User, get_api_key, get_current_user, get_optional_user
 from app.main import app
@@ -39,12 +38,6 @@ def seed(db):
     yield add
     for table, key, value in reversed(made):
         db.table(table).delete().eq(key, value).execute()
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
 
 
 def _act_as(uid: str) -> None:
@@ -134,7 +127,7 @@ def test_team_document_list_returns_the_embedded_shares(client, db, seed, member
     path = f"test/{_tag()}.md"
     db.storage.from_("shares").upload(path, b"# hello", file_options={"content-type": "text/markdown"})
     try:
-        share = seed("shares", {"slug": f"doc-{_tag()}", "storage_path": path, "user_id": member["uid"], "title": "Doc"})
+        share = seed("shares", {"slug": f"doc-{_tag()}", "storage_path": path, "user_id": member["uid"], "title": "Doc", "source": "api"})
         link = seed("team_shares", {"team_id": member["team"]["id"], "share_id": share["id"], "shared_by": member["uid"]})
         auth = ApiKeyAuth(user_id=member["uid"], key_id="k", team_id=member["team"]["id"])
         app.dependency_overrides[get_api_key] = lambda: auth

@@ -6,6 +6,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 
+import httpx
 from fastapi import Request
 from fastapi.exceptions import HTTPException
 
@@ -41,7 +42,8 @@ class ApiKeyAuth:
 async def get_firebase_claims(request: Request) -> dict:
     """Verify the Firebase Bearer token and return its claims.
 
-    Raises HTTPException(401) on a missing or invalid token.
+    Raises HTTPException(401) on a missing or invalid token and HTTPException(503)
+    when the signing certs cannot be fetched.
     """
     token = _extract_bearer(request)
     if not token:
@@ -51,6 +53,9 @@ async def get_firebase_claims(request: Request) -> dict:
     except (ValueError, KeyError) as exc:
         logger.debug("JWT validation failed: %s", exc)
         raise HTTPException(status_code=401, detail="Invalid or expired token") from exc
+    except httpx.HTTPError as exc:
+        logger.warning("Firebase signing certs unavailable: %s", exc)
+        raise HTTPException(status_code=503, detail="Auth provider unavailable") from exc
 
 
 async def get_current_user(request: Request) -> User:

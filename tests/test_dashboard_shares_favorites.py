@@ -10,26 +10,12 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi.testclient import TestClient
 
 from app.main import app
 from core.security import hash_password
-from tests.test_share_access_control import _act_as, _Seed, _walk_keys
+from tests.conftest import Seed, act_as, walk_keys
 
 SECRET_KEYS = {"password_hash", "delete_token", "content", "content_text", "storage_path"}
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def seed():
-    s = _Seed()
-    yield s
-    s.cleanup()
 
 
 def _ago(hours: int) -> str:
@@ -52,7 +38,7 @@ class TestMyShares:
         newest = seed.share(me, is_private=False, created_at=_ago(1))
         middle = seed.share(me, is_private=False, created_at=_ago(2))
         seed.share(other, is_private=False, created_at=_ago(0))
-        _act_as(me)
+        act_as(me)
 
         resp = client.get("/api/dashboard/shares")
 
@@ -66,7 +52,7 @@ class TestMyShares:
         me = seed.user()
         private = seed.share(me, is_private=True, created_at=_ago(1))
         expired = seed.share(me, is_private=False, expires_at=_ago(5), created_at=_ago(2))
-        _act_as(me)
+        act_as(me)
 
         body = client.get("/api/dashboard/shares").json()
 
@@ -81,14 +67,14 @@ class TestMyShares:
             me, is_private=False, password_hash=hash_password("hunter2"), created_at=_ago(1),
         )
         open_share = seed.share(me, is_private=False, created_at=_ago(2))
-        _act_as(me)
+        act_as(me)
 
         resp = client.get("/api/dashboard/shares")
 
         by_id = {i["id"]: i for i in resp.json()["items"]}
         assert by_id[protected["id"]]["has_password"] is True
         assert by_id[open_share["id"]]["has_password"] is False
-        assert not SECRET_KEYS & set(_walk_keys(resp.json()))
+        assert not SECRET_KEYS & set(walk_keys(resp.json()))
         assert protected["delete_token"] not in resp.text
         assert protected["storage_path"] not in resp.text
 
@@ -96,7 +82,7 @@ class TestMyShares:
         me = seed.user()
         shares = [seed.share(me, is_private=False, created_at=_ago(h)) for h in (5, 4, 3, 2, 1)]
         newest_first = [s["id"] for s in reversed(shares)]
-        _act_as(me)
+        act_as(me)
 
         first = client.get("/api/dashboard/shares?page=1&limit=2").json()
         second = client.get("/api/dashboard/shares?page=2&limit=2").json()
@@ -113,7 +99,7 @@ class TestMyShares:
     def test_another_users_pages_never_show_my_shares(self, client, seed):
         me, other = seed.user(), seed.user()
         mine = seed.share(me, is_private=False)
-        _act_as(other)
+        act_as(other)
 
         body = client.get("/api/dashboard/shares").json()
 
@@ -125,12 +111,12 @@ class TestMyShares:
         ["page=0", "page=-1", "limit=0", "limit=101", "limit=-5", "page=abc"],
     )
     def test_rejects_out_of_range_paging(self, client, seed, query):
-        _act_as(seed.user())
+        act_as(seed.user())
 
         assert client.get(f"/api/dashboard/shares?{query}").status_code == 422
 
     def test_accepts_the_maximum_limit(self, client, seed):
-        _act_as(seed.user())
+        act_as(seed.user())
 
         resp = client.get("/api/dashboard/shares?limit=100")
 
@@ -154,7 +140,7 @@ class TestFavorites:
     def test_add_list_and_remove(self, client, seed):
         owner, me = seed.user(), seed.user()
         share = seed.share(owner, is_private=False, title="Bookmarked")
-        _act_as(me)
+        act_as(me)
 
         assert client.get("/api/v1/favorites").json() == []
         assert client.get(f"/api/v1/favorites/{share['id']}").json() == {"favorited": False}
@@ -179,7 +165,7 @@ class TestFavorites:
     def test_add_and_remove_are_idempotent(self, client, seed):
         me = seed.user()
         share = seed.share(seed.user(), is_private=False)
-        _act_as(me)
+        act_as(me)
 
         assert client.delete(f"/api/v1/favorites/{share['id']}").status_code == 200
         assert client.post(f"/api/v1/favorites/{share['id']}").status_code == 200
@@ -193,7 +179,7 @@ class TestFavorites:
         me = seed.user()
         first = seed.share(seed.user(), is_private=False)
         second = seed.share(seed.user(), is_private=False)
-        _act_as(me)
+        act_as(me)
 
         client.post(f"/api/v1/favorites/{first['id']}")
         client.post(f"/api/v1/favorites/{second['id']}")
@@ -202,19 +188,54 @@ class TestFavorites:
             second["id"], first["id"],
         ]
 
+    def test_share_made_private_after_favoriting_disappears(self, client, seed):
+        owner, me = seed.user(), seed.user()
+        share = seed.share(owner, is_private=False)
+        act_as(me)
+        client.post(f"/api/v1/favorites/{share['id']}")
+        seed.db.table("shares").update({"is_private": True}).eq("id", share["id"]).execute()
+
+        assert client.get(f"/api/v1/favorites/{share['id']}").json() == {"favorited": False}
+        assert client.get("/api/v1/favorites").json() == []
+
+    @pytest.mark.parametrize("ended", [
+        {"expires_at": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()},
+        {"burned": True},
+    ], ids=["expired", "burned"])
+    def test_ended_share_is_hidden_from_non_owner_favorites(self, client, seed, ended):
+        owner, me = seed.user(), seed.user()
+        share = seed.share(owner, is_private=False)
+        act_as(me)
+        client.post(f"/api/v1/favorites/{share['id']}")
+        seed.db.table("shares").update(ended).eq("id", share["id"]).execute()
+
+        assert client.get(f"/api/v1/favorites/{share['id']}").json() == {"favorited": False}
+        assert client.get("/api/v1/favorites").json() == []
+
+    def test_owner_keeps_own_expired_share_as_favorite(self, client, seed):
+        owner = seed.user()
+        share = seed.share(owner, is_private=False)
+        act_as(owner)
+        client.post(f"/api/v1/favorites/{share['id']}")
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        seed.db.table("shares").update({"expires_at": past}).eq("id", share["id"]).execute()
+
+        assert client.get(f"/api/v1/favorites/{share['id']}").json() == {"favorited": True}
+        assert [i["id"] for i in client.get("/api/v1/favorites").json()] == [share["id"]]
+
     def test_favorites_are_per_user(self, client, seed):
         me, other = seed.user(), seed.user()
         share = seed.share(seed.user(), is_private=False)
-        _act_as(me)
+        act_as(me)
         client.post(f"/api/v1/favorites/{share['id']}")
 
-        _act_as(other)
+        act_as(other)
 
         assert client.get("/api/v1/favorites").json() == []
         assert client.get(f"/api/v1/favorites/{share['id']}").json() == {"favorited": False}
         client.delete(f"/api/v1/favorites/{share['id']}")
 
-        _act_as(me)
+        act_as(me)
         assert len(client.get("/api/v1/favorites").json()) == 1
 
     def test_list_never_returns_secrets(self, client, seed):
@@ -222,20 +243,20 @@ class TestFavorites:
         share = seed.share(
             seed.user(), is_private=False, password_hash=hash_password("hunter2"),
         )
-        _act_as(me)
+        act_as(me)
         client.post(f"/api/v1/favorites/{share['id']}")
 
         resp = client.get("/api/v1/favorites")
 
         assert resp.json()[0]["has_password"] is True
-        assert not SECRET_KEYS & set(_walk_keys(resp.json()))
+        assert not SECRET_KEYS & set(walk_keys(resp.json()))
         assert share["delete_token"] not in resp.text
         assert share["storage_path"] not in resp.text
 
     def test_missing_and_invisible_shares_are_the_same_404(self, client, seed):
         owner, me = seed.user(), seed.user()
         private = seed.share(owner, is_private=True)
-        _act_as(me)
+        act_as(me)
 
         missing = client.post(f"/api/v1/favorites/{uuid.uuid4()}")
         not_a_uuid = client.post("/api/v1/favorites/not-a-uuid")
@@ -249,7 +270,7 @@ class TestFavorites:
     def test_owner_can_favorite_their_own_private_share(self, client, seed):
         me = seed.user()
         private = seed.share(me, is_private=True)
-        _act_as(me)
+        act_as(me)
 
         assert client.post(f"/api/v1/favorites/{private['id']}").status_code == 200
         [item] = client.get("/api/v1/favorites").json()
@@ -258,7 +279,7 @@ class TestFavorites:
     def test_share_that_turned_private_drops_out_of_the_list(self, client, seed):
         owner, me = seed.user(), seed.user()
         share = seed.share(owner, is_private=False)
-        _act_as(me)
+        act_as(me)
         client.post(f"/api/v1/favorites/{share['id']}")
 
         seed.db.table("shares").update({"is_private": True}).eq("id", share["id"]).execute()
@@ -268,7 +289,7 @@ class TestFavorites:
     def test_deleting_the_share_removes_the_favorite(self, client, seed):
         me = seed.user()
         share = seed.share(seed.user(), is_private=False)
-        _act_as(me)
+        act_as(me)
         client.post(f"/api/v1/favorites/{share['id']}")
 
         seed.db.table("shares").delete().eq("id", share["id"]).execute()
@@ -281,7 +302,7 @@ class TestFavorites:
 # Team responses: caller role and schema column names
 # ---------------------------------------------------------------------------
 
-def _team_with_members(seed: _Seed, **roles) -> str:
+def _team_with_members(seed: Seed, **roles) -> str:
     """A team owned by roles['owner'] with one member per named role; returns the slug."""
     slug = f"dash-team-{uuid.uuid4().hex[:10]}"
     owner = roles["owner"]
@@ -301,7 +322,7 @@ class TestTeamResponses:
     def test_get_team_reports_the_callers_role(self, client, seed, role):
         users = {r: seed.user() for r in ("owner", "editor", "viewer")}
         slug = _team_with_members(seed, **users)
-        _act_as(users[role])
+        act_as(users[role])
 
         resp = client.get(f"/api/dashboard/teams/{slug}")
 
@@ -311,14 +332,14 @@ class TestTeamResponses:
 
     def test_get_team_still_refuses_non_members(self, client, seed):
         slug = _team_with_members(seed, owner=seed.user())
-        _act_as(seed.user())
+        act_as(seed.user())
 
         assert client.get(f"/api/dashboard/teams/{slug}").status_code == 403
 
     def test_team_rows_carry_the_schema_column_names(self, client, seed):
         owner = seed.user()
         slug = _team_with_members(seed, owner=owner)
-        _act_as(owner)
+        act_as(owner)
 
         team = client.get(f"/api/dashboard/teams/{slug}").json()
         listed = client.get("/api/dashboard/teams").json()
@@ -341,7 +362,7 @@ class TestTeamResponses:
             "event_type": "member_joined",
             "payload": json.dumps({"target_user_id": "someone"}),
         }).execute()
-        _act_as(owner)
+        act_as(owner)
 
         resp = client.get(f"/api/dashboard/teams/{slug}/events?limit=10")
 

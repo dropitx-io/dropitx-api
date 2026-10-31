@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
-from fastapi.testclient import TestClient
 
 from app.dependencies import ApiKeyAuth, User, get_api_key, get_current_user, get_optional_user
 from app.main import app
@@ -47,12 +46,6 @@ def _no_upload_rate_limit(monkeypatch):
         "app.internal.multi_upload",
     ):
         monkeypatch.setattr(f"{module}.check_upload_rate_limit", lambda ip, _ok=ok: _ok)
-
-
-@pytest.fixture
-def client():
-    yield TestClient(app)
-    app.dependency_overrides.clear()
 
 
 @pytest.fixture
@@ -126,6 +119,16 @@ class TestPrivateShareObjects:
         row = _share_row(resp.json()["slug"])
         objects.append(row["storage_path"])
         direct = _anonymous_get(f"{settings.s3_endpoint}/html-files/{row['storage_path']}")
+        assert direct.status_code == 403
+
+    def test_object_in_the_shares_bucket_is_not_anonymously_readable(self):
+        key = f"shares/{uuid.uuid4().hex}.md"
+        storage = get_admin_client().storage.from_("shares")
+        storage.upload(key, b"# v1 document", file_options={"content-type": "text/markdown"})
+        try:
+            direct = _anonymous_get(f"{settings.s3_endpoint}/shares/{key}")
+        finally:
+            storage.remove([key])
         assert direct.status_code == 403
 
     def test_share_content_object_is_not_under_public_prefix(self, client, owner, objects):

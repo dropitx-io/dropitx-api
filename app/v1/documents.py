@@ -11,10 +11,12 @@ from pydantic import BaseModel, Field
 
 from app.dependencies import ApiKeyAuth, get_api_key
 from app.v1.document_helpers import (
+    bucket_for,
     extract_plain_text,
     fetch_content,
     find_document,
     infer_mime,
+    team_key_may_read,
 )
 from core.nanoid import generate_delete_token, generate_slug
 from core.supabase import get_admin_client
@@ -216,7 +218,10 @@ async def list_documents(
                 .range(offset, offset + limit - 1)
                 .execute(),
             )
-            rows = [item["shares"] for item in resp.data if item.get("shares")]
+            rows = [
+                item["shares"] for item in resp.data
+                if item.get("shares") and team_key_may_read(item["shares"], auth)
+            ]
         else:
             resp = await asyncio.to_thread(
                 lambda: client.table("shares")
@@ -233,7 +238,7 @@ async def list_documents(
 
     results = []
     for row in rows:
-        content = await fetch_content(client, row["storage_path"])
+        content = await fetch_content(client, row)
         results.append(_to_response(row, content))
     return results
 
@@ -245,7 +250,7 @@ async def get_document(
 ) -> DocumentResponse:
     """Get a single document by slug."""
     client = get_admin_client()
-    row = await find_document(client, slug, auth)
+    row = await find_document(client, slug, auth, for_content=True)
 
     # Check expiration
     if row.get("expires_at"):
@@ -256,7 +261,7 @@ async def get_document(
         if dt.now(timezone.utc) > expires:
             raise HTTPException(status_code=410, detail="Document has expired")
 
-    content = await fetch_content(client, row["storage_path"])
+    content = await fetch_content(client, row)
     return _to_response(row, content)
 
 
@@ -276,7 +281,7 @@ async def update_document(
     # Save current state as a revision before updating
     if body.content:
         from app.v1.revisions import save_revision
-        current_content = await fetch_content(client, row["storage_path"])
+        current_content = await fetch_content(client, row)
         await save_revision(
             row["id"],
             current_content,
@@ -304,7 +309,7 @@ async def update_document(
     try:
         if body.content:
             await asyncio.to_thread(
-                lambda: client.storage.from_(_STORAGE_BUCKET).update(
+                lambda: client.storage.from_(bucket_for(row)).update(
                     path=row["storage_path"],
                     file=body.content.encode("utf-8"),
                     file_options={"content-type": infer_mime(
@@ -321,7 +326,7 @@ async def update_document(
         logger.error("Document update failed for %s: %s", slug, exc)
         raise HTTPException(status_code=500, detail="Failed to update document") from exc
 
-    final_content = body.content if body.content else await fetch_content(client, row["storage_path"])
+    final_content = body.content if body.content else await fetch_content(client, row)
     return _to_response(updated, final_content)
 
 
@@ -334,8 +339,7 @@ async def delete_document(
     client = get_admin_client()
     row = await find_document(client, slug, auth)
 
-    # Same bucket rule as every other reader: /api/upload and editor shares live in html-files.
-    bucket = "html-files" if row.get("source") in ("upload", "editor") else _STORAGE_BUCKET
+    bucket = bucket_for(row)
     await remove_thumbnail(row["storage_path"])
     try:
         await asyncio.to_thread(
