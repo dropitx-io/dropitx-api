@@ -121,6 +121,16 @@ class TestPrivateShareObjects:
         direct = _anonymous_get(f"{settings.s3_endpoint}/html-files/{row['storage_path']}")
         assert direct.status_code == 403
 
+    def test_object_in_the_shares_bucket_is_not_anonymously_readable(self):
+        key = f"shares/{uuid.uuid4().hex}.md"
+        storage = get_admin_client().storage.from_("shares")
+        storage.upload(key, b"# v1 document", file_options={"content-type": "text/markdown"})
+        try:
+            direct = _anonymous_get(f"{settings.s3_endpoint}/shares/{key}")
+        finally:
+            storage.remove([key])
+        assert direct.status_code == 403
+
     def test_share_content_object_is_not_under_public_prefix(self, client, owner, objects):
         resp = client.post(
             "/api/upload", files={"file": ("a.html", HTML, "text/html")}
