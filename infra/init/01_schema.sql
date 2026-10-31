@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS shares (
     file_size BIGINT,
     file_type TEXT,
     mime_type TEXT,
-    is_private BOOLEAN DEFAULT false,
+    is_private BOOLEAN NOT NULL DEFAULT false,
     password_hash TEXT,
     user_id TEXT REFERENCES auth.users(id) ON DELETE SET NULL,
     view_count INTEGER DEFAULT 0,
