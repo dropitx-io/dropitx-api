@@ -164,7 +164,7 @@ async def get_share_content(
 ):
     """View a share's content. Handles:
     - Expiration check (returns 410 if expired)
-    - Password protection (returns 403 with password_protected=true)
+    - Password protection (empty content with password_protected=true; the owner gets the content)
     - Burn-after-reading (deletes after first view)
     - E2E encryption metadata passthrough
     - Download limit enforcement
@@ -183,8 +183,8 @@ async def get_share_content(
     # Check download limit
     _check_download_limit(row)
 
-    # Check password protection
-    if row.get("password_hash"):
+    # Check password protection: only the owner reads a protected share without the password
+    if row.get("password_hash") and not _is_owner(row, user):
         return ShareContentResponse(
             slug=row["slug"],
             filename=row.get("filename"),
@@ -238,7 +238,7 @@ async def get_share_content(
         burn_after_reading=row.get("burn_after_reading", False),
         burned=row.get("burned", False),
         is_private=row.get("is_private", False),
-        password_protected=False,
+        password_protected=bool(row.get("password_hash")),
         language=row.get("language"),
     ).model_dump()
 

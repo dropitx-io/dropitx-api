@@ -10,7 +10,7 @@ import uuid
 
 import pytest
 
-from tests.conftest import act_as, unique_ip
+from tests.conftest import PRIVATE_BODY, act_as, unique_ip
 
 # method, route suffix, request body for each owner-only share mutation
 ROUTES = {
@@ -241,3 +241,53 @@ class TestReencryptOwnerAuth:
         again = _reencrypt(client, share["slug"], delete_token=share["delete_token"])
         assert again.status_code == 401
         assert again.json()["detail"] == "Incorrect old password"
+
+
+# ---------------------------------------------------------------------------
+# GET /api/shares/{slug}/content: the owner reads a password-protected share
+# ---------------------------------------------------------------------------
+
+def _password_share(seed, owner, **overrides):
+    from core.security import hash_password
+
+    return seed.share(owner, password_hash=hash_password("hunter22"), **overrides)
+
+
+class TestOwnerReadsPasswordShare:
+    def test_owner_gets_the_real_content_without_the_password(self, client, seed):
+        owner = seed.user()
+        share = _password_share(seed, owner)
+        act_as(owner)
+
+        resp = client.get(f"/api/shares/{share['slug']}/content", headers=unique_ip())
+
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["content"] == PRIVATE_BODY
+        assert resp.json()["password_protected"] is True
+
+    def test_owner_gets_the_real_content_of_a_public_password_share(self, client, seed):
+        owner = seed.user()
+        share = _password_share(seed, owner, is_private=False)
+        act_as(owner)
+
+        resp = client.get(f"/api/shares/{share['slug']}/content", headers=unique_ip())
+
+        assert resp.json()["content"] == PRIVATE_BODY
+
+    def test_a_signed_in_stranger_still_gets_empty_content(self, client, seed):
+        share = _password_share(seed, seed.user(), is_private=False)
+        act_as(seed.user())
+
+        body = client.get(f"/api/shares/{share['slug']}/content", headers=unique_ip()).json()
+
+        assert body["content"] == ""
+        assert body["password_protected"] is True
+
+    def test_an_anonymous_caller_still_gets_empty_content(self, client, seed):
+        share = _password_share(seed, seed.user(), is_private=False)
+        act_as(None)
+
+        body = client.get(f"/api/shares/{share['slug']}/content", headers=unique_ip()).json()
+
+        assert body["content"] == ""
+        assert body["password_protected"] is True
