@@ -134,13 +134,14 @@ def test_comment_reply_keeps_its_parent(client, seed):
     assert {c["content"]: c["parent_id"] for c in listed} == {"first": None, "reply": parent.json()["id"]}
 
 
-def test_custom_slug_is_prefixed_with_the_owners_username(seed):
+def test_custom_slug_is_not_prefixed_with_the_owners_username(seed):
+    """A 'handle/slug' slug would be unreachable: /api/shares/{slug} matches one path segment."""
     uid = f"u-{_tag()}"
-    username = f"alice{_tag()}"
     seed("auth.users", {"id": uid})
-    seed("user_profiles", {"user_id": uid, "username": username})
+    seed("user_profiles", {"user_id": uid, "username": f"alice{_tag()}"})
+    custom = f"my-doc-{_tag()}"
 
-    assert asyncio.run(_resolve_custom_slug(uid, "my-doc")) == f"{username}/my-doc"
+    assert asyncio.run(_resolve_custom_slug(custom)) == custom
 
 
 def test_accept_team_invite_adds_the_member_and_names_the_team(db, seed):

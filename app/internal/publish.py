@@ -97,7 +97,7 @@ async def publish(
     # Resolve slug
     slug: str
     if body.custom_slug:
-        slug = await _resolve_custom_slug(user.id, body.custom_slug)
+        slug = await _resolve_custom_slug(body.custom_slug)
     else:
         slug = generate_slug()
 
@@ -203,35 +203,16 @@ async def publish(
     )
 
 
-async def _resolve_custom_slug(user_id: str, custom_slug: str) -> str:
-    """Resolve custom_slug to handle/slug format and verify uniqueness."""
+async def _resolve_custom_slug(custom_slug: str) -> str:
+    """Verify a custom slug is free. Slugs are one global namespace: no username prefix,
+    since a 'handle/slug' slug is unreachable at /api/shares/{slug}."""
     client = get_admin_client()
 
-    # Fetch user handle
-    try:
-        resp = await asyncio.to_thread(
-            lambda: client.table("user_profiles")
-            .select("username")
-            .eq("user_id", user_id)
-            .execute(),
-        )
-        rows = resp.data or []
-        handle = rows[0]["username"] if rows else None
-    except Exception as exc:
-        logger.warning("Failed to fetch handle for user=%s: %s", user_id, exc)
-        handle = None
-
-    if handle:
-        full_slug = f"{handle}/{custom_slug}"
-    else:
-        full_slug = custom_slug
-
-    # Check uniqueness
     try:
         resp = await asyncio.to_thread(
             lambda: client.table("shares")
             .select("slug")
-            .eq("slug", full_slug)
+            .eq("slug", custom_slug)
             .execute(),
         )
         if resp.data:
@@ -244,7 +225,7 @@ async def _resolve_custom_slug(user_id: str, custom_slug: str) -> str:
         logger.warning("Slug uniqueness check failed: %s", exc)
         # Proceed optimistically if check fails
 
-    return full_slug
+    return custom_slug
 
 
 async def _cleanup_storage(storage_path: str) -> None:

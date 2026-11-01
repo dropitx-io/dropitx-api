@@ -1,4 +1,7 @@
-"""Live-DB tests: PUT /api/v1/profile sets the signed-in user's display name."""
+"""Live-DB tests: PUT /api/v1/profile sets the signed-in user's display name.
+
+Username and is_public updates are covered in tests/test_usernames.py.
+"""
 
 from __future__ import annotations
 
@@ -25,10 +28,13 @@ class TestUpdateProfile:
         resp = client.put(URL, json={"display_name": "New Name"})
 
         assert resp.status_code == 200, resp.text
-        assert resp.json() == {"display_name": "New Name", "avatar_url": "https://img.test/a.png"}
+        assert resp.json() == {
+            "display_name": "New Name", "avatar_url": "https://img.test/a.png",
+            "username": None, "is_public": False,
+        }
         assert _profile(seed, user)["display_name"] == "New Name"
 
-    def test_response_exposes_only_display_name_and_avatar_url(self, client, seed):
+    def test_response_exposes_only_the_public_profile_fields(self, client, seed):
         user = seed.user()
         username = f"u{user.id[-8:]}"
         seed.db.table("user_profiles").insert(
@@ -38,7 +44,8 @@ class TestUpdateProfile:
 
         body = client.put(URL, json={"display_name": "Someone"}).json()
 
-        assert set(body) == {"display_name", "avatar_url"}
+        assert set(body) == {"display_name", "avatar_url", "username", "is_public"}
+        assert body["username"] == username
         assert body["avatar_url"] is None
         row = _profile(seed, user)
         assert row["username"] == username
@@ -52,7 +59,9 @@ class TestUpdateProfile:
         resp = client.put(URL, json={"display_name": "First Name"})
 
         assert resp.status_code == 200, resp.text
-        assert resp.json() == {"display_name": "First Name", "avatar_url": None}
+        assert resp.json() == {
+            "display_name": "First Name", "avatar_url": None, "username": None, "is_public": False,
+        }
         assert _profile(seed, user)["display_name"] == "First Name"
 
     def test_trims_surrounding_whitespace(self, client, seed):
