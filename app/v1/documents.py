@@ -198,7 +198,7 @@ async def create_document(
         except Exception as exc:
             logger.warning("team_shares insert failed for %s: %s", slug, exc)
         else:
-            await record_team_event(auth.team_id, auth.user_id, "share_added", {
+            await record_team_event(auth.team_id, auth.user_id, "share.added", {
                 "share_id": share_row["id"], "slug": slug,
             })
 

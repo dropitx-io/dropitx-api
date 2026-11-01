@@ -136,7 +136,7 @@ async def _record_member_joined(team_id: str, user_id: str) -> None:
         logger.warning("Failed to look up the new member of team %s", team_id, exc_info=True)
         return
     if membership.data:
-        await record_team_event(team_id, user_id, "member_joined", {"role": membership.data[0]["role"]})
+        await record_team_event(team_id, user_id, "member.joined", {"role": membership.data[0]["role"]})
 
 
 @invite_actions_router.post("/invite/decline", tags=["Invitations"])

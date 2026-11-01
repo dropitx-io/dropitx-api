@@ -98,11 +98,11 @@ async def create_invite(
 
 
 async def _record_invite_sent(team_id: str, actor_id: str, rpc_rows) -> None:
-    """invite_sent for the row create_team_invite returned; the token is never part of an event."""
+    """invite.created for the row create_team_invite returned; the token is never part of an event."""
     rows = rpc_rows if isinstance(rpc_rows, list) else [rpc_rows]
     for row in rows:
         if isinstance(row, dict):
-            await record_team_event(team_id, actor_id, "invite_sent", {
+            await record_team_event(team_id, actor_id, "invite.created", {
                 "invite_id": str(row["id"]), "email": row["email"], "role": row["role"],
             })
 
@@ -132,7 +132,7 @@ async def revoke_invite(
         .execute()
     )
     for row in deleted.data or []:
-        await record_team_event(team["id"], user.id, "invite_revoked", {
+        await record_team_event(team["id"], user.id, "invite.revoked", {
             "invite_id": str(row["id"]), "email": row["email"],
         })
     return {"detail": "Invite revoked"}

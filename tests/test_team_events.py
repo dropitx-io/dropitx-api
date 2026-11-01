@@ -2,14 +2,14 @@
 
 Event types and payloads (the frontend renders these):
 
-    member_joined   actor = new member        {"role"}
-    member_left     actor = leaving member    {"user_id"}
-    member_removed  actor = owner             {"user_id"}
-    role_changed    actor = owner             {"user_id", "role", "previous_role"}
-    invite_sent     actor = inviter           {"invite_id", "email", "role"}
-    invite_revoked  actor = revoker           {"invite_id", "email"}
-    share_added     actor = sharer            {"share_id", "slug"}
-    share_removed   actor = remover or null   {"share_id", "slug"}
+    member.joined   actor = new member        {"role"}
+    member.left     actor = leaving member    {"user_id"}
+    member.removed  actor = owner             {"user_id"}
+    member.role_changed    actor = owner             {"user_id", "role", "previous_role"}
+    invite.created     actor = inviter           {"invite_id", "email", "role"}
+    invite.revoked  actor = revoker           {"invite_id", "email"}
+    share.added     actor = sharer            {"share_id", "slug"}
+    share.removed   actor = remover or null   {"share_id", "slug"}
 """
 
 from __future__ import annotations
@@ -79,7 +79,7 @@ class TestMembershipEvents:
 
         assert client.post("/api/invite/accept", json={"token": invite["token"]}).status_code == 200
 
-        event = _only(seed, team, "member_joined")
+        event = _only(seed, team, "member.joined")
         assert event["user_id"] == joiner.id
         assert event["payload"] == {"role": "editor"}
 
@@ -113,7 +113,7 @@ class TestMembershipEvents:
         resp = client.request("DELETE", f"/api/dashboard/teams/{team['slug']}/members", json={"user_id": member.id})
 
         assert resp.status_code == 200
-        event = _only(seed, team, "member_removed")
+        event = _only(seed, team, "member.removed")
         assert event["user_id"] == team["owner"].id
         assert event["payload"] == {"user_id": member.id}
 
@@ -124,7 +124,7 @@ class TestMembershipEvents:
         resp = client.request("DELETE", f"/api/dashboard/teams/{team['slug']}/members", json={"user_id": member.id})
 
         assert resp.status_code == 200
-        event = _only(seed, team, "member_left")
+        event = _only(seed, team, "member.left")
         assert event["user_id"] == member.id
         assert event["payload"] == {"user_id": member.id}
 
@@ -145,7 +145,7 @@ class TestMembershipEvents:
         )
 
         assert resp.status_code == 200
-        event = _only(seed, team, "role_changed")
+        event = _only(seed, team, "member.role_changed")
         assert event["user_id"] == team["owner"].id
         assert event["payload"] == {"user_id": member.id, "role": "editor", "previous_role": "viewer"}
 
@@ -154,7 +154,7 @@ class TestInviteEvents:
     def test_sending_an_invite_records_invite_sent(self, client, seed, team):
         invite = _invite(client, team, email="new@example.com", role="viewer")
 
-        event = _only(seed, team, "invite_sent")
+        event = _only(seed, team, "invite.created")
         assert event["user_id"] == team["owner"].id
         assert event["payload"] == {"invite_id": invite["id"], "email": "new@example.com", "role": "viewer"}
         assert "token" not in event["payload"]
@@ -168,7 +168,7 @@ class TestInviteEvents:
         )
 
         assert resp.json()["success"] == 2
-        sent = [e for e in _events(seed, team) if e["event_type"] == "invite_sent"]
+        sent = [e for e in _events(seed, team) if e["event_type"] == "invite.created"]
         assert len(sent) == 2
 
     def test_revoking_an_invite_records_invite_revoked(self, client, seed, team):
@@ -179,7 +179,7 @@ class TestInviteEvents:
         )
 
         assert resp.status_code == 200
-        event = _only(seed, team, "invite_revoked")
+        event = _only(seed, team, "invite.revoked")
         assert event["payload"] == {"invite_id": invite["id"], "email": "gone@example.com"}
 
     def test_revoking_an_unknown_invite_records_nothing(self, client, seed, team):
@@ -203,11 +203,11 @@ class TestShareEvents:
         created = client.post("/api/v1/documents", json={"content": "# team doc", "filename": "t.md"})
         assert created.status_code in (200, 201), created.text
         slug = created.json()["slug"]
-        added = _only(seed, team, "share_added")
+        added = _only(seed, team, "share.added")
 
         assert client.delete(f"/api/v1/documents/{slug}").status_code == 204
 
-        removed = _only(seed, team, "share_removed")
+        removed = _only(seed, team, "share.removed")
         assert added["user_id"] == removed["user_id"] == team["owner"].id
         assert added["payload"]["slug"] == removed["payload"]["slug"] == slug
         assert added["payload"]["share_id"] == removed["payload"]["share_id"]
@@ -221,7 +221,7 @@ class TestShareEvents:
 
         assert client.delete(f"/api/shares/{share['slug']}").status_code == 200
 
-        event = _only(seed, team, "share_removed")
+        event = _only(seed, team, "share.removed")
         assert event["user_id"] == team["owner"].id
         assert event["payload"] == {"share_id": share["id"], "slug": share["slug"]}
 

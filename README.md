@@ -226,14 +226,14 @@ A username is 3-30 characters of lowercase letters, digits and hyphens, starting
 
 | `event_type` | Written when | `payload` |
 |---|---|---|
-| `member_joined` | an invite is accepted | `{role}` |
-| `member_left` | a member removes themselves | `{user_id}` |
-| `member_removed` | the owner removes a member | `{user_id}` |
-| `role_changed` | the owner changes a member's role | `{user_id, role, previous_role}` |
-| `invite_sent` | an invite is created (one per address in a bulk invite) | `{invite_id, email, role}` |
-| `invite_revoked` | a pending invite is revoked | `{invite_id, email}` |
-| `share_added` | a team API key creates a document | `{share_id, slug}` |
-| `share_removed` | a team's share is deleted (v1, owner delete, or expiry) | `{share_id, slug}` |
+| `member.joined` | an invite is accepted | `{role}` |
+| `member.left` | a member removes themselves | `{user_id}` |
+| `member.removed` | the owner removes a member | `{user_id}` |
+| `member.role_changed` | the owner changes a member's role | `{user_id, role, previous_role}` |
+| `invite.created` | an invite is created (one per address in a bulk invite) | `{invite_id, email, role}` |
+| `invite.revoked` | a pending invite is revoked | `{invite_id, email}` |
+| `share.added` | a team API key creates a document | `{share_id, slug}` |
+| `share.removed` | a team's share is deleted (v1, owner delete, or expiry) | `{share_id, slug}` |
 
 ## Authentication
 

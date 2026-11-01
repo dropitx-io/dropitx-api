@@ -173,7 +173,7 @@ async def change_member_role(
         }).execute()
     )
     if target is not None:
-        await record_team_event(team["id"], user.id, "role_changed", {
+        await record_team_event(team["id"], user.id, "member.role_changed", {
             "user_id": target_user_id, "role": new_role, "previous_role": target["role"],
         })
     return {"detail": "Role updated"}
@@ -208,7 +208,7 @@ async def remove_member(
         }).execute()
     )
     if target is not None:
-        event_type = "member_left" if target_user_id == user.id else "member_removed"
+        event_type = "member.left" if target_user_id == user.id else "member.removed"
         await record_team_event(team["id"], user.id, event_type, {"user_id": target_user_id})
     return {"detail": "Member removed"}
 

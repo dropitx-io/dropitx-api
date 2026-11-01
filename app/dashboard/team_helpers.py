@@ -99,7 +99,7 @@ async def record_team_event(team_id: str, actor_id: str | None, event_type: str,
 
 
 async def record_share_removed(share: dict, actor_id: str | None) -> None:
-    """Record share_removed in every team the share belongs to. Call before the share is deleted."""
+    """Record share.removed in every team the share belongs to. Call before the share is deleted."""
     client = get_admin_client()
     try:
         links = await asyncio.to_thread(
@@ -110,5 +110,5 @@ async def record_share_removed(share: dict, actor_id: str | None) -> None:
         return
     for team_id in {link["team_id"] for link in links.data or []}:
         await record_team_event(
-            team_id, actor_id, "share_removed", {"share_id": share["id"], "slug": share["slug"]},
+            team_id, actor_id, "share.removed", {"share_id": share["id"], "slug": share["slug"]},
         )

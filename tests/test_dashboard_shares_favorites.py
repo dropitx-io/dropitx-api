@@ -402,7 +402,7 @@ class TestTeamResponses:
         seed.db.table("team_events").insert({
             "team_id": team_id,
             "user_id": owner.id,
-            "event_type": "member_joined",
+            "event_type": "member.joined",
             "payload": json.dumps({"target_user_id": "someone"}),
         }).execute()
         act_as(owner)
@@ -411,7 +411,7 @@ class TestTeamResponses:
 
         assert resp.status_code == 200
         [event] = resp.json()
-        assert event["event_type"] == "member_joined"
+        assert event["event_type"] == "member.joined"
         assert event["user_id"] == owner.id
         assert event["payload"] == {"target_user_id": "someone"}
         assert not {"actor_id", "target_user_id", "metadata"} & set(event)
