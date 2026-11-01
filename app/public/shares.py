@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import logging
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -28,6 +30,14 @@ from models.share import GroupFile, ShareMeta
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _decode_stored_content(resp: bytes | str) -> tuple[str, Literal["utf8", "base64"]]:
+    raw = resp if isinstance(resp, bytes) else str(resp).encode("utf-8")
+    try:
+        return raw.decode("utf-8"), "utf8"
+    except UnicodeDecodeError:
+        return base64.b64encode(raw).decode("ascii"), "base64"
 
 
 # ---------------------------------------------------------------------------
@@ -62,6 +72,7 @@ class ShareContentResponse(BaseModel):
     filename: str | None = None
     title: str | None = None
     content: str
+    encoding: str = "utf8"
     encrypted: bool = False
     encryption_iv: str | None = None
     encryption_salt: str | None = None
@@ -272,7 +283,7 @@ async def get_share_content(
         resp = await asyncio.to_thread(
             lambda: client.storage.from_(bucket).download(storage_path),
         )
-        content = resp.decode("utf-8") if isinstance(resp, bytes) else str(resp)
+        content, encoding = _decode_stored_content(resp)
     except Exception as exc:
         logger.error("Content download failed for %s: %s", storage_path, exc)
         raise HTTPException(status_code=500, detail="Failed to fetch content") from exc
@@ -287,6 +298,7 @@ async def get_share_content(
         filename=row.get("filename"),
         title=row.get("title"),
         content=content,
+        encoding=encoding,
         encrypted=row.get("encrypted", False),
         encryption_iv=row.get("encryption_iv"),
         encryption_salt=row.get("encryption_salt"),
@@ -553,10 +565,11 @@ async def unlock_share(
         resp = await asyncio.to_thread(
             lambda: client.storage.from_(bucket).download(storage_path),
         )
-        content = resp.decode("utf-8") if isinstance(resp, bytes) else str(resp)
+        content, encoding = _decode_stored_content(resp)
     except Exception as exc:
         logger.error("Content download failed for %s: %s", storage_path, exc)
         content = ""
+        encoding = "utf8"
 
     # Increment view count
     asyncio.create_task(_increment_view_count(row["id"]))
@@ -566,6 +579,7 @@ async def unlock_share(
     return {
         "detail": "Unlocked",
         "content": content,
+        "encoding": encoding,
         "slug": row["slug"],
         "filename": row.get("filename"),
         "title": row.get("title"),
