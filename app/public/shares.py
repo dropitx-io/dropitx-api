@@ -7,6 +7,7 @@ import base64
 import io
 import logging
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -31,8 +32,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-def _decode_stored_content(resp) -> tuple[str, str]:
-    """Decode stored bytes as UTF-8 text, or base64 when they are binary."""
+def _decode_stored_content(resp: bytes | str) -> tuple[str, Literal["utf8", "base64"]]:
     raw = resp if isinstance(resp, bytes) else str(resp).encode("utf-8")
     try:
         return raw.decode("utf-8"), "utf8"

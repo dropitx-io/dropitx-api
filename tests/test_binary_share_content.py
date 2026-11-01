@@ -1,4 +1,8 @@
-"""Binary shares must stay readable: content is served base64-encoded."""
+"""Live-DB tests: binary shares stay readable, served base64-encoded.
+
+Runs against the real Postgres + MinIO from CI. Only authentication is
+overridden; uploads, storage and the read paths are real.
+"""
 
 from __future__ import annotations
 
@@ -8,16 +12,15 @@ import uuid
 from core.security import hash_password
 from tests.conftest import act_as, unique_ip
 
-PDF_BYTES = b"%PDF-1.4\n%\x93\x8f\x00\xff binary payload \x00\x01\x02"
+NON_UTF8_PDF_BYTES = b"%PDF-1.4\n%\x93\x8f\x00\xff binary payload \x00\x01\x02"
 
 
-def seed_pdf_share(seed, *, password: str | None = None) -> dict:
-    """Insert a public PDF share whose bytes are not valid UTF-8."""
+def seed_non_utf8_pdf_share(seed, *, password: str | None = None) -> dict:
     owner = seed.user()
     slug = f"pdf-{uuid.uuid4().hex[:12]}"
     path = f"shares/{slug}.pdf"
     seed.db.storage.from_("html-files").upload(
-        path, PDF_BYTES, file_options={"content-type": "application/pdf"}
+        path, NON_UTF8_PDF_BYTES, file_options={"content-type": "application/pdf"}
     )
     seed.objects.append(path)
     row = {
@@ -40,7 +43,7 @@ def seed_pdf_share(seed, *, password: str | None = None) -> dict:
 
 class TestBinaryShareContent:
     def test_public_binary_share_returns_base64(self, client, seed):
-        share = seed_pdf_share(seed)
+        share = seed_non_utf8_pdf_share(seed)
         act_as(None)
 
         resp = client.get(f"/api/shares/{share['slug']}/content", headers=unique_ip())
@@ -48,7 +51,7 @@ class TestBinaryShareContent:
         assert resp.status_code == 200
         body = resp.json()
         assert body.get("encoding") == "base64"
-        assert base64.b64decode(body["content"]) == PDF_BYTES
+        assert base64.b64decode(body["content"]) == NON_UTF8_PDF_BYTES
 
     def test_text_share_content_stays_utf8(self, client, seed):
         share = seed.share(seed.user(), body="<h1>hello</h1>", is_private=False)
@@ -62,7 +65,7 @@ class TestBinaryShareContent:
         assert body["content"] == "<h1>hello</h1>"
 
     def test_unlock_binary_share_returns_base64(self, client, seed):
-        share = seed_pdf_share(seed, password="s3cret-pass")
+        share = seed_non_utf8_pdf_share(seed, password="s3cret-pass")
         act_as(None)
 
         resp = client.post(
@@ -74,4 +77,4 @@ class TestBinaryShareContent:
         assert resp.status_code == 200
         body = resp.json()
         assert body.get("encoding") == "base64"
-        assert base64.b64decode(body["content"]) == PDF_BYTES
+        assert base64.b64decode(body["content"]) == NON_UTF8_PDF_BYTES
