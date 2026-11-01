@@ -45,7 +45,7 @@ class TestListingWithUnreadableContent:
         assert by_slug[encrypted["slug"]]["content"] == ""
         assert by_slug[encrypted["slug"]]["encrypted"] is True
 
-    def test_a_document_whose_object_is_gone_is_listed_without_content(self, client, seed):
+    def test_a_burned_document_is_listed_without_content(self, client, seed):
         owner = seed.user()
         readable = seed.share(owner, is_private=False, body=PUBLIC_BODY)
         gone = _missing_object_share(seed, owner)
@@ -57,6 +57,20 @@ class TestListingWithUnreadableContent:
         by_slug = {d["slug"]: d for d in resp.json()}
         assert by_slug[readable["slug"]]["content"] == PUBLIC_BODY
         assert by_slug[gone["slug"]]["content"] == ""
+
+    def test_a_live_document_whose_object_is_missing_is_listed_without_content(self, client, seed):
+        owner = seed.user()
+        readable = seed.share(owner, is_private=False, body=PUBLIC_BODY)
+        missing = seed.share(owner, is_private=False)
+        seed.db.storage.from_("html-files").remove([missing["storage_path"]])
+        _use_personal_key(owner)
+
+        resp = client.get("/api/v1/documents")
+
+        assert resp.status_code == 200, resp.text
+        by_slug = {d["slug"]: d for d in resp.json()}
+        assert by_slug[readable["slug"]]["content"] == PUBLIC_BODY
+        assert by_slug[missing["slug"]]["content"] == ""
 
 
 class TestGettingUnreadableContent:
