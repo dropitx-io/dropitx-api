@@ -129,8 +129,17 @@ async def _fetch_share(
 
 
 async def _remove_share_storage(row: dict) -> None:
-    """Remove a share's stored content and thumbnail (best-effort)."""
+    """Remove a share's stored content, thumbnail and version snapshots (best-effort)."""
     client = get_admin_client()
+    try:
+        versions = await asyncio.to_thread(
+            lambda: client.table("share_versions").select("storage_path").eq("share_slug", row["slug"]).execute()
+        )
+        snapshots = [v["storage_path"] for v in versions.data or [] if v.get("storage_path")]
+        if snapshots:
+            await asyncio.to_thread(lambda: client.storage.from_("html-files").remove(snapshots))
+    except Exception:
+        logger.warning("Failed to remove version snapshots of %s", row.get("slug"), exc_info=True)
     storage_path = row.get("storage_path")
     if storage_path:
         await remove_thumbnail(storage_path)
@@ -164,10 +173,13 @@ async def _retire_share_content(row: dict, *, burned: bool) -> None:
     recognised by its download count.
     """
     await _remove_share_storage(row)
+    client = get_admin_client()
+    await asyncio.to_thread(
+        lambda: client.table("share_versions").delete().eq("share_slug", row["slug"]).execute()
+    )
     update: dict = {"content_text": None}
     if burned:
         update["burned"] = True
-    client = get_admin_client()
     await asyncio.to_thread(
         lambda: client.table("shares").update(update).eq("id", row["id"]).execute()
     )

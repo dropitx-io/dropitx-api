@@ -15,6 +15,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_BUCKET = "html-files"
+
+
+def _version_storage_path(slug: str, version_num: int) -> str:
+    """Storage key of a version's own copy of the share content."""
+    return f"versions/{slug}/{version_num}.html"
+
 
 class VersionItem(BaseModel):
     """A single version snapshot."""
@@ -204,6 +211,11 @@ async def restore_version(
     version_row = version_rows[0]
     restored_content_text = version_row.get("content_text")
     restored_storage_path = version_row.get("storage_path")
+    share_storage_path = share_row.get("storage_path") or f"shares/{slug}.html"
+
+    # Versions saved before snapshots existed point at the live object: nothing to restore from.
+    if not restored_storage_path or restored_storage_path == share_storage_path:
+        raise HTTPException(status_code=409, detail="This version has no saved content to restore")
 
     # Save current state as a new version before restoring
     await save_version(
@@ -212,48 +224,38 @@ async def restore_version(
         storage_path=share_row.get("storage_path"),
     )
 
-    # If the version has a storage_path, copy its content to the share's storage
-    restored_size = None
-    if restored_storage_path:
-        try:
-            # Download content from the version's storage path
-            content_bytes = await asyncio.to_thread(
-                lambda: client.storage.from_("html-files").download(restored_storage_path)
-            )
-            content_str = content_bytes.decode("utf-8") if isinstance(content_bytes, bytes) else str(content_bytes)
-            restored_size = len(content_str.encode("utf-8"))
-
-            # Upload to the share's current storage path
-            share_storage_path = share_row.get("storage_path", f"shares/{slug}.html")
-            await asyncio.to_thread(
-                lambda: client.storage.from_("html-files").upload(
-                    share_storage_path,
-                    content_str.encode("utf-8"),
-                    file_options={"content-type": "text/html; charset=utf-8", "upsert": "true"},
-                ),
-            )
-        except Exception as exc:
-            logger.error("Storage update failed during restore: %s", exc)
-            raise HTTPException(status_code=500, detail="Failed to restore content") from exc
+    # Copy the version's own snapshot over the share's live object
+    try:
+        content_bytes = await asyncio.to_thread(
+            lambda: client.storage.from_(_BUCKET).download(restored_storage_path)
+        )
+        restored_size = len(content_bytes)
+        await asyncio.to_thread(
+            lambda: client.storage.from_(_BUCKET).upload(
+                share_storage_path,
+                content_bytes,
+                file_options={"content-type": "text/html; charset=utf-8", "upsert": "true"},
+            ),
+        )
+    except Exception as exc:
+        logger.error("Storage update failed during restore: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to restore content") from exc
 
     # Update the share's content_text and file_size
-    update_data: dict = {}
+    update_data: dict = {"file_size": restored_size}
     if restored_content_text is not None:
         update_data["content_text"] = restored_content_text
-    if restored_size is not None:
-        update_data["file_size"] = restored_size
 
-    if update_data:
-        try:
-            await asyncio.to_thread(
-                lambda: client.table("shares")
-                .update(update_data)
-                .eq("slug", slug)
-                .execute()
-            )
-        except Exception as exc:
-            logger.error("DB update failed during restore: %s", exc)
-            raise HTTPException(status_code=500, detail="Failed to update share") from exc
+    try:
+        await asyncio.to_thread(
+            lambda: client.table("shares")
+            .update(update_data)
+            .eq("slug", slug)
+            .execute()
+        )
+    except Exception as exc:
+        logger.error("DB update failed during restore: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to update share") from exc
 
     return RestoreResponse(
         id=share_row["id"],
@@ -264,7 +266,11 @@ async def restore_version(
 
 
 async def save_version(slug: str, content_text: str | None, storage_path: str | None) -> None:
-    """Save a version snapshot for a share (called on publish/update). A8."""
+    """Save a version snapshot for a share (called on publish/update). A8.
+
+    The live object at ``storage_path`` is copied to the version's own key, because
+    the live object is overwritten by the update that follows.
+    """
     client = get_admin_client()
 
     # Get current max version_num
@@ -283,6 +289,25 @@ async def save_version(slug: str, content_text: str | None, storage_path: str | 
         logger.warning("Failed to get max version for slug=%s, defaulting to 1", slug)
         next_version = 1
 
+    snapshot_path = None
+    if storage_path:
+        candidate = _version_storage_path(slug, next_version)
+        try:
+            content_bytes = await asyncio.to_thread(
+                lambda: client.storage.from_(_BUCKET).download(storage_path)
+            )
+            await asyncio.to_thread(
+                lambda: client.storage.from_(_BUCKET).upload(
+                    candidate,
+                    content_bytes,
+                    file_options={"content-type": "text/html; charset=utf-8"},
+                ),
+            )
+            snapshot_path = candidate
+        except Exception:
+            logger.warning("Failed to snapshot %s for version %d of slug=%s",
+                           storage_path, next_version, slug, exc_info=True)
+
     # Insert version record
     try:
         await asyncio.to_thread(
@@ -290,7 +315,7 @@ async def save_version(slug: str, content_text: str | None, storage_path: str | 
                 {
                     "share_slug": slug,
                     "content_text": content_text,
-                    "storage_path": storage_path,
+                    "storage_path": snapshot_path,
                     "version_num": next_version,
                 }
             ).execute()
