@@ -6,7 +6,6 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from core.supabase import get_admin_client
-from core.thumbnail import remove_thumbnail
 
 logger = logging.getLogger(__name__)
 
@@ -100,27 +99,12 @@ async def cleanup_expired_shares() -> int:
     if not rows:
         return 0
 
+    from app.public.shares import delete_share_row
+
     deleted = 0
     for row in rows:
         try:
-            storage_path = row.get("storage_path")
-            source = row.get("source", "")
-            bucket = "html-files" if source in ("upload", "editor") else "shares"
-
-            # Remove from storage
-            if storage_path:
-                await remove_thumbnail(storage_path)
-                try:
-                    await asyncio.to_thread(
-                        lambda sp=storage_path, b=bucket: client.storage.from_(b).remove([sp]),
-                    )
-                except Exception:
-                    logger.warning("Failed to remove storage for expired share %s", row["id"])
-
-            # Remove from DB
-            await asyncio.to_thread(
-                lambda rid=row["id"]: client.table("shares").delete().eq("id", rid).execute(),
-            )
+            await delete_share_row(row)
             deleted += 1
             logger.info("Deleted expired share %s (slug=%s)", row["id"], row.get("slug"))
         except Exception as exc:

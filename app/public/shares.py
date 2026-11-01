@@ -123,15 +123,30 @@ async def _fetch_share(
             expires = datetime.fromisoformat(expires.replace("Z", "+00:00"))
         if datetime.now(timezone.utc) > expires:
             # Auto-delete expired share
-            await _delete_share_row(row)
+            await delete_share_row(row)
             raise HTTPException(status_code=410, detail="Share has expired")
 
     return row
 
 
 async def _remove_share_storage(row: dict) -> None:
-    """Remove a share's stored content, thumbnail and version snapshots (best-effort)."""
+    """Remove a share's stored content, thumbnails, multi-file files and version snapshots (best-effort)."""
     client = get_admin_client()
+    try:
+        files = await asyncio.to_thread(
+            lambda: client.table("share_files").select("storage_path").eq("share_id", row["id"]).execute()
+        )
+        # A multi-file share's row points at its first file only; the rest live in share_files.
+        extra = [
+            f["storage_path"] for f in files.data or []
+            if f.get("storage_path") and f["storage_path"] != row.get("storage_path")
+        ]
+        for path in extra:
+            await remove_thumbnail(path)
+        if extra:
+            await asyncio.to_thread(lambda: client.storage.from_("html-files").remove(extra))
+    except Exception:
+        logger.warning("Failed to remove the files of multi-file share %s", row.get("slug"), exc_info=True)
     try:
         versions = await asyncio.to_thread(
             lambda: client.table("share_versions").select("storage_path").eq("share_slug", row["slug"]).execute()
@@ -155,7 +170,7 @@ async def _remove_share_storage(row: dict) -> None:
             logger.warning("Failed to remove storage file %s", storage_path, exc_info=True)
 
 
-async def _delete_share_row(row: dict) -> None:
+async def delete_share_row(row: dict) -> None:
     """Delete a share and its storage (best-effort)."""
     client = get_admin_client()
     await _remove_share_storage(row)
@@ -181,6 +196,9 @@ async def _retire_share_content(row: dict, *, burned: bool) -> None:
     # v1 document revisions hold earlier copies of the content in the row itself.
     await asyncio.to_thread(
         lambda: client.table("share_revisions").delete().eq("share_id", row["id"]).execute()
+    )
+    await asyncio.to_thread(
+        lambda: client.table("share_files").delete().eq("share_id", row["id"]).execute()
     )
     update: dict = {"content_text": None}
     if burned:
@@ -454,7 +472,7 @@ async def delete_share(
 
     row = await _fetch_share(slug, owner_check=(user, body.delete_token), allow_consumed=True)
 
-    await _delete_share_row(row)
+    await delete_share_row(row)
 
     return {"detail": "Share deleted"}
 
