@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import secrets
 import logging
 from datetime import datetime, timedelta, timezone
@@ -76,3 +77,38 @@ def get_invite_expiry() -> str:
     """ISO-8601 timestamp 7 days from now (UTC)."""
     expires = datetime.now(timezone.utc) + timedelta(days=7)
     return expires.isoformat()
+
+
+async def record_team_event(team_id: str, actor_id: str | None, event_type: str, payload: dict) -> None:
+    """Append an event to a team's activity feed.
+
+    Best-effort: a failed write is logged and never fails the action it records.
+    """
+    client = get_admin_client()
+    try:
+        await asyncio.to_thread(
+            lambda: client.table("team_events").insert({
+                "team_id": team_id,
+                "user_id": actor_id,
+                "event_type": event_type,
+                "payload": json.dumps(payload),
+            }).execute()
+        )
+    except Exception:
+        logger.warning("Failed to record %s event for team %s", event_type, team_id, exc_info=True)
+
+
+async def record_share_removed(share: dict, actor_id: str | None) -> None:
+    """Record share.removed in every team the share belongs to. Call before the share is deleted."""
+    client = get_admin_client()
+    try:
+        links = await asyncio.to_thread(
+            lambda: client.table("team_shares").select("team_id").eq("share_id", share["id"]).execute()
+        )
+    except Exception:
+        logger.warning("Failed to look up the teams of share %s", share.get("slug"), exc_info=True)
+        return
+    for team_id in {link["team_id"] for link in links.data or []}:
+        await record_team_event(
+            team_id, actor_id, "share.removed", {"share_id": share["id"], "slug": share["slug"]},
+        )

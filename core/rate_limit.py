@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import logging
+import math
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+
+from fastapi import HTTPException
 
 from core.supabase import get_admin_client
 
@@ -18,6 +22,20 @@ class RateLimitResult:
     limit: int
     remaining: int
     reset: int  # Unix timestamp
+
+    @property
+    def retry_after(self) -> int:
+        """Whole seconds until the window resets: RFC 9110 delay-seconds, at least 1."""
+        return max(math.ceil(self.reset - time.time()), 1)
+
+
+def rate_limit_exceeded(rate: RateLimitResult, detail: str = "Rate limit exceeded") -> HTTPException:
+    """The 429 for a refused rate-limit check, telling the client how long to wait."""
+    return HTTPException(
+        status_code=429,
+        detail=detail,
+        headers={"Retry-After": str(rate.retry_after)},
+    )
 
 
 def _parse_reset(value) -> int:

@@ -11,10 +11,10 @@ from fastapi.exceptions import HTTPException
 from pydantic import BaseModel, Field
 
 from app.dependencies import User, get_client_ip, get_current_user
-from core.extract_text import extract_text_from_html
+from core.extract_text import extract_text_from_html, extract_text_from_markdown
 from core.language_detect import detect_language
 from core.nanoid import generate_delete_token, generate_slug
-from core.rate_limit import check_upload_rate_limit
+from core.rate_limit import check_upload_rate_limit, rate_limit_exceeded
 from core.security import hash_password
 from core.share_urls import share_page_url
 from core.supabase import get_admin_client
@@ -22,6 +22,19 @@ from core.supabase import get_admin_client
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _publish_mime_type(language: str | None, filename: str | None) -> str:
+    """Markdown when the editor says so (language or a .md filename); HTML otherwise."""
+    if (language or "").strip().lower() == "markdown" or (filename or "").lower().endswith(".md"):
+        return "text/markdown"
+    return "text/html"
+
+
+def _plain_text(content: str, mime_type: str) -> str:
+    if mime_type == "text/markdown":
+        return extract_text_from_markdown(content)
+    return extract_text_from_html(content)
 
 
 class PublishRequest(BaseModel):
@@ -79,17 +92,18 @@ async def publish(
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded(rate)
 
     # Resolve slug
     slug: str
     if body.custom_slug:
-        slug = await _resolve_custom_slug(user.id, body.custom_slug)
+        slug = await _resolve_custom_slug(body.custom_slug)
     else:
         slug = generate_slug()
 
     storage_path = f"shares/{slug}.html"
     delete_token = generate_delete_token()
+    mime_type = _publish_mime_type(body.language, body.filename)
 
     # Upload to Supabase Storage
     client = get_admin_client()
@@ -98,7 +112,7 @@ async def publish(
             lambda: client.storage.from_("html-files").upload(
                 storage_path,
                 body.content.encode("utf-8"),
-                file_options={"content-type": "text/html; charset=utf-8", "upsert": "true"},
+                file_options={"content-type": f"{mime_type}; charset=utf-8", "upsert": "true"},
             ),
         )
     except Exception as exc:
@@ -106,7 +120,7 @@ async def publish(
         raise HTTPException(status_code=500, detail="Failed to upload content") from exc
 
     # Insert into shares table
-    plain_text = extract_text_from_html(body.content)
+    plain_text = _plain_text(body.content, mime_type)
     share_url = share_page_url(slug)
 
     # Compute expiration (A4)
@@ -126,8 +140,8 @@ async def publish(
         # Default 30 days
         expires_at = (datetime.now(timezone.utc) + timedelta(seconds=2592000)).isoformat()
 
-    # Derive filename so it's never None (matches text/html mime_type and storage_path).
-    filename = body.filename or f"{slug}.html"
+    # Derive filename so it's never None, with the extension of its content type.
+    filename = body.filename or f"{slug}.{'md' if mime_type == 'text/markdown' else 'html'}"
 
     # Detect language for syntax highlighting (use derived filename so editor
     # publishes — which don't carry a filename — still get language detection)
@@ -147,7 +161,7 @@ async def publish(
             "delete_token": delete_token,
             "content_text": plain_text[:5000],
             "file_size": len(body.content.encode("utf-8")),
-            "mime_type": "text/html",
+            "mime_type": mime_type,
             "source": "editor",
             "encrypted": body.encrypted,
             "encryption_iv": body.encryption_iv,
@@ -189,35 +203,16 @@ async def publish(
     )
 
 
-async def _resolve_custom_slug(user_id: str, custom_slug: str) -> str:
-    """Resolve custom_slug to handle/slug format and verify uniqueness."""
+async def _resolve_custom_slug(custom_slug: str) -> str:
+    """Verify a custom slug is free. Slugs are one global namespace: no username prefix,
+    since a 'handle/slug' slug is unreachable at /api/shares/{slug}."""
     client = get_admin_client()
 
-    # Fetch user handle
-    try:
-        resp = await asyncio.to_thread(
-            lambda: client.table("user_profiles")
-            .select("username")
-            .eq("user_id", user_id)
-            .execute(),
-        )
-        rows = resp.data or []
-        handle = rows[0]["username"] if rows else None
-    except Exception as exc:
-        logger.warning("Failed to fetch handle for user=%s: %s", user_id, exc)
-        handle = None
-
-    if handle:
-        full_slug = f"{handle}/{custom_slug}"
-    else:
-        full_slug = custom_slug
-
-    # Check uniqueness
     try:
         resp = await asyncio.to_thread(
             lambda: client.table("shares")
             .select("slug")
-            .eq("slug", full_slug)
+            .eq("slug", custom_slug)
             .execute(),
         )
         if resp.data:
@@ -230,7 +225,7 @@ async def _resolve_custom_slug(user_id: str, custom_slug: str) -> str:
         logger.warning("Slug uniqueness check failed: %s", exc)
         # Proceed optimistically if check fails
 
-    return full_slug
+    return custom_slug
 
 
 async def _cleanup_storage(storage_path: str) -> None:
@@ -273,7 +268,7 @@ async def update_publish(
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded(rate)
 
     client = get_admin_client()
 
@@ -305,14 +300,15 @@ async def update_publish(
         storage_path=existing.get("storage_path"),
     )
 
-    # Upload new content
+    # Upload new content; the share keeps the content type it was published with
     storage_path = f"shares/{slug}.html"
+    mime_type = existing.get("mime_type") or "text/html"
     try:
         await asyncio.to_thread(
             lambda: client.storage.from_("html-files").upload(
                 storage_path,
                 body.content.encode("utf-8"),
-                file_options={"content-type": "text/html; charset=utf-8", "upsert": "true"},
+                file_options={"content-type": f"{mime_type}; charset=utf-8", "upsert": "true"},
             ),
         )
     except Exception as exc:
@@ -325,7 +321,7 @@ async def update_publish(
         await remove_thumbnail(storage_path)
 
     # Build update data
-    plain_text = extract_text_from_html(body.content)
+    plain_text = _plain_text(body.content, mime_type)
     update_data: dict = {
         "content_text": plain_text[:5000],
         "file_size": len(body.content.encode("utf-8")),

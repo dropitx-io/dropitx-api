@@ -102,6 +102,8 @@ app.add_middleware(
     allow_credentials=settings.allowed_origins != "*",
     allow_methods=["*"],
     allow_headers=["*"],
+    # A 429's wait time must be readable by the browser app.
+    expose_headers=["Retry-After"],
 )
 
 app.include_router(v1_router, prefix="/api/v1")

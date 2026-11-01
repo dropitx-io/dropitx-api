@@ -82,7 +82,7 @@ Client → FastAPI → [JWT/API Key Auth] → Route Handler
 
 - **asyncio.to_thread()** — wraps sync Supabase client calls for async compatibility
 - **Compensating transactions** — storage files cleaned up if DB insert fails
-- **Rate limiting** — Postgres RPC with configurable fail-open/fail-closed
+- **Rate limiting** — Postgres RPC with configurable fail-open/fail-closed. Every 429 carries `Retry-After` as whole seconds until the window resets (RFC 9110 delay-seconds), and CORS exposes it to the browser
 - **Role hierarchy** — `owner (3) > editor (2) > viewer (1)` for team permissions
 - **API keys** — `shk_` (personal) / `sht_` (team) prefixes, SHA-256 hashed
 - **Storage buckets** — `html-files` (upload/publish), `shares` (v1 documents)
@@ -99,19 +99,20 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | `GET` | `/health/deep` | Deep health check (includes database ping) |
 | `GET` | `/api/search?q=` | Full-text search across public shares |
 | `GET` | `/api/explore?tag=&sort=` | Public gallery (trending, tag-filtered) |
-| `GET` | `/api/profiles/{handle}` | Public user profile + shares |
+| `GET` | `/api/u/{username}` | Public profile (`username`, `display_name`, `avatar_url`, `bio`, share stats; never the email). 404 unless the owner set `is_public` |
+| `GET` | `/api/u/{username}/shares` | The profile's open shares (`page`, `limit`, `sort=recent\|views\|stars`): no private, password-protected, burned, expired, burn-after-reading or one-time-download shares |
 | `GET` | `/api/shares/{slug}` | Share metadata and access state (no content, no view counted) |
 | `GET` | `/api/shares/{slug}/content` | View share content |
 | `GET` | `/api/shares/{slug}/download-status` | Check download status |
-| `GET` | `/api/shares/{slug}/download` | Download share as file |
+| `GET` | `/api/shares/{slug}/download` | Download share as file (`Content-Disposition: attachment`, `Cache-Control: no-transform` so a CDN cannot rewrite the bytes) |
 | `GET` | `/api/shares/{slug}/versions` | Read-only version history |
 | `GET` | `/api/shares/{slug}/preview` | File preview (images, PDF, code, text, media) |
 | `GET` | `/api/shares/{slug}/qrcode` | Generate QR code (SVG or PNG) |
 | `GET` | `/api/shares/{slug}/comments` | List comments on share |
 | `POST` | `/api/shares/{slug}/unlock` | Verify share password |
-| `POST` | `/api/shares/{slug}/burn` | Mark share as burned/consumed |
+| `POST` | `/api/shares/{slug}/burn` | Burn a share (owner JWT or `delete_token` in the body): deletes its content (file, thumbnails, multi-file files, version snapshots, v1 revisions) and keeps the row as a burned tombstone that answers 410; 410 if already burned |
 | `POST` | `/api/shares/{slug}/comments` | Add comment to share |
-| `DELETE` | `/api/shares/{slug}` | Delete share (owner or delete_token) |
+| `DELETE` | `/api/shares/{slug}` | Delete share and all its stored files (owner or delete_token) |
 | `POST` | `/api/shares/{slug}/set-password` | Set or clear share password |
 | `POST` | `/api/shares/{slug}/encrypt` | Encrypt share with password |
 | `POST` | `/api/shares/{slug}/reencrypt` | Re-encrypt with new password |
@@ -125,14 +126,17 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | Method | Path | Description |
 |--------|------|-------------|
 | `POST` | `/api/upload` | Upload HTML/MD file (optional JWT, 50MB max) |
-| `POST` | `/api/upload/batch` | Batch upload (multiple files) |
-| `POST` | `/api/upload/multi` | Multi-file upload (share groups) |
-| `POST` | `/api/publish` | Publish editor content with custom slug |
+| `POST` | `/api/upload/batch` | Batch upload: each file becomes its own share in a group (`group_id`), owned by the signed-in caller |
+| `POST` | `/api/upload/multi` | Multi-file upload: several files under one share |
+| `POST` | `/api/publish` | Publish editor content with custom slug. Stored as `text/markdown` when `language` is `markdown` or the filename ends `.md`, else `text/html` |
+| `PUT` | `/api/publish/{slug}` | Update a published share (owner); saves the previous content as a version and keeps the share's content type |
+| `GET` | `/api/auth/session` | Provision the signed-in user and return their profile; assigns a username to a profile without one |
+| `PUT` | `/api/v1/profile` | Update the caller's `display_name` (required), and optionally `username` (422 malformed or reserved, 409 taken) and `is_public` |
 | `POST` | `/api/images/upload` | Upload embedded image (5MB max, PNG/JPG/GIF/WebP) |
 | `POST` | `/api/requests` | Create file request/upload link |
 | `GET` | `/api/dashboard/requests` | List user's file requests |
-| `GET` | `/api/download/group/{slug}` | Bulk download group as ZIP |
-| `GET` | `/api/dashboard/shares` | List the caller's own shares, newest first (`page`, `limit` up to 100) |
+| `GET` | `/api/download/group/{slug}` | Bulk download group as ZIP (`Cache-Control: no-transform`) |
+| `GET` | `/api/dashboard/shares` | List the caller's own shares, newest first (`page`, `limit` up to 100). Batch-uploaded shares are listed one item each, with their `group_id` |
 | `GET` | `/api/dashboard/analytics/top-shares` | Totals over all the caller's shares plus the top shares by recent views (`limit` up to 50) |
 | `GET` | `/api/dashboard/shares/{slug}/analytics` | Summary, daily timeseries, referrers and countries for one of the caller's shares (`days` 1-365; owner only) |
 | `GET` | `/api/v1/favorites` | List the caller's favorited shares |
@@ -154,7 +158,7 @@ Interactive Swagger docs at `/docs`, ReDoc at `/redoc`.
 | `DELETE` | `/api/dashboard/teams/{slug}/invites` | Revoke invite (editor+) |
 | `POST` | `/api/dashboard/teams/{slug}/invites/bulk` | Bulk invite up to 50 emails (editor+) |
 | `POST` | `/api/dashboard/teams/{slug}/invites/{id}/resend` | Resend invite (editor+) |
-| `GET` | `/api/dashboard/teams/{slug}/events` | List team events (paginated) |
+| `GET` | `/api/dashboard/teams/{slug}/events` | List team events, newest first (paginated; see [Team events](#team-events)) |
 | `GET` | `/api/dashboard/teams/{slug}/shares` | List team shares (paginated) |
 | `GET` | `/api/dashboard/invitations` | List received invites |
 | `GET` | `/api/invites/{token}` | Look up an invite for the accept page (public) |
@@ -211,6 +215,25 @@ curl -X POST http://localhost:8000/api/v1/keys \
 ```bash
 curl "http://localhost:8000/api/search?q=hello&page=1&limit=10"
 ```
+
+### Usernames
+
+A username is 3-30 characters of lowercase letters, digits and hyphens, starting and ending with a letter or digit, unique, and not one of `admin`, `api`, `dashboard`, `auth`, `s`, `u`, `embed`. `GET /api/auth/session` gives a profile without one a name derived from the email's local part (else the display name, else `user`), adding `2`, `3`, ... when it is taken. `PUT /api/v1/profile` trims and lowercases a submitted `username`. A profile is public only once its owner sets `is_public: true`. Custom publish slugs are not prefixed with the username.
+
+### Team events
+
+`GET /api/dashboard/teams/{slug}/events` returns rows `{id, team_id, user_id, event_type, payload, created_at}`; `user_id` is the member who acted (null for a share that expired).
+
+| `event_type` | Written when | `payload` |
+|---|---|---|
+| `member.joined` | an invite is accepted | `{role}` |
+| `member.left` | a member removes themselves | `{user_id}` |
+| `member.removed` | the owner removes a member | `{user_id}` |
+| `member.role_changed` | the owner changes a member's role | `{user_id, role, previous_role}` |
+| `invite.created` | an invite is created (one per address in a bulk invite) | `{invite_id, email, role}` |
+| `invite.revoked` | a pending invite is revoked | `{invite_id, email}` |
+| `share.added` | a team API key creates a document | `{share_id, slug}` |
+| `share.removed` | a team's share is deleted (v1, owner delete, or expiry) | `{share_id, slug}` |
 
 ## Authentication
 

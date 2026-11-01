@@ -11,12 +11,14 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.dashboard.team_helpers import record_share_removed
 from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
 from app.public._share_auth import authorize_owner, can_view_share, require_share_visible
 from core.rate_limit import (
     check_password_rate_limit,
     check_public_read_rate_limit,
     check_share_meta_rate_limit,
+    rate_limit_exceeded,
 )
 from core.security import hash_password, verify_password
 from core.supabase import get_admin_client
@@ -122,15 +124,30 @@ async def _fetch_share(
             expires = datetime.fromisoformat(expires.replace("Z", "+00:00"))
         if datetime.now(timezone.utc) > expires:
             # Auto-delete expired share
-            await _delete_share_row(row)
+            await delete_share_row(row)
             raise HTTPException(status_code=410, detail="Share has expired")
 
     return row
 
 
 async def _remove_share_storage(row: dict) -> None:
-    """Remove a share's stored content, thumbnail and version snapshots (best-effort)."""
+    """Remove a share's stored content, thumbnails, multi-file files and version snapshots (best-effort)."""
     client = get_admin_client()
+    try:
+        files = await asyncio.to_thread(
+            lambda: client.table("share_files").select("storage_path").eq("share_id", row["id"]).execute()
+        )
+        # A multi-file share's row points at its first file only; the rest live in share_files.
+        extra = [
+            f["storage_path"] for f in files.data or []
+            if f.get("storage_path") and f["storage_path"] != row.get("storage_path")
+        ]
+        for path in extra:
+            await remove_thumbnail(path)
+        if extra:
+            await asyncio.to_thread(lambda: client.storage.from_("html-files").remove(extra))
+    except Exception:
+        logger.warning("Failed to remove the files of multi-file share %s", row.get("slug"), exc_info=True)
     try:
         versions = await asyncio.to_thread(
             lambda: client.table("share_versions").select("storage_path").eq("share_slug", row["slug"]).execute()
@@ -154,9 +171,10 @@ async def _remove_share_storage(row: dict) -> None:
             logger.warning("Failed to remove storage file %s", storage_path, exc_info=True)
 
 
-async def _delete_share_row(row: dict) -> None:
-    """Delete a share and its storage (best-effort)."""
+async def delete_share_row(row: dict, actor_id: str | None = None) -> None:
+    """Delete a share and its storage (best-effort). ``actor_id`` is None when nobody asked (expiry)."""
     client = get_admin_client()
+    await record_share_removed(row, actor_id)
     await _remove_share_storage(row)
     try:
         await asyncio.to_thread(
@@ -176,6 +194,13 @@ async def _retire_share_content(row: dict, *, burned: bool) -> None:
     client = get_admin_client()
     await asyncio.to_thread(
         lambda: client.table("share_versions").delete().eq("share_slug", row["slug"]).execute()
+    )
+    # v1 document revisions hold earlier copies of the content in the row itself.
+    await asyncio.to_thread(
+        lambda: client.table("share_revisions").delete().eq("share_id", row["id"]).execute()
+    )
+    await asyncio.to_thread(
+        lambda: client.table("share_files").delete().eq("share_id", row["id"]).execute()
     )
     update: dict = {"content_text": None}
     if burned:
@@ -213,11 +238,7 @@ async def get_share_content(
     ip = get_client_ip(request)
     rate = check_public_read_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
@@ -344,11 +365,7 @@ async def get_share_meta(
     """
     rate = check_share_meta_rate_limit(get_client_ip(request))
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     client = get_admin_client()
     resp = await asyncio.to_thread(
@@ -457,7 +474,7 @@ async def delete_share(
 
     row = await _fetch_share(slug, owner_check=(user, body.delete_token), allow_consumed=True)
 
-    await _delete_share_row(row)
+    await delete_share_row(row, user.id if user else None)
 
     return {"detail": "Share deleted"}
 
@@ -512,11 +529,7 @@ async def unlock_share(
     ip = get_client_ip(request)
     rate = check_password_rate_limit(ip, slug)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many attempts. Try again later.",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate, "Too many attempts. Try again later.")
 
     row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
@@ -617,11 +630,7 @@ async def download_share(
     ip = get_client_ip(request)
     rate = check_public_read_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
@@ -640,11 +649,7 @@ async def download_share(
             ip = get_client_ip(request)
             rate = check_password_rate_limit(ip, slug)
             if not rate.success:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Too many attempts. Try again later.",
-                    headers={"Retry-After": str(max(rate.reset, 1))},
-                )
+                raise rate_limit_exceeded(rate, "Too many attempts. Try again later.")
             raise HTTPException(status_code=401, detail="Incorrect password")
 
     # Fetch content from storage
@@ -681,6 +686,8 @@ async def download_share(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(len(content_bytes)),
+            # The bytes must arrive as stored: no CDN rewriting (e.g. injected scripts).
+            "Cache-Control": "no-transform",
         },
     )
 
@@ -711,11 +718,7 @@ async def get_download_status(
     ip = get_client_ip(request)
     rate = check_public_read_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     client = get_admin_client()
     try:

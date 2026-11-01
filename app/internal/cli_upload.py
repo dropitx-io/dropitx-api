@@ -22,7 +22,7 @@ from app.dependencies import ApiKeyAuth, User, get_client_ip, get_optional_user
 from core.config import settings
 from core.extract_text import extract_text_from_html, extract_text_from_markdown
 from core.nanoid import generate_delete_token, generate_slug
-from core.rate_limit import check_upload_rate_limit
+from core.rate_limit import check_upload_rate_limit, rate_limit_exceeded
 from core.security import hash_api_key
 from core.supabase import get_admin_client
 
@@ -184,7 +184,7 @@ async def cli_upload(
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded(rate)
     
     # Get API key auth (optional)
     api_key_auth = None
@@ -368,7 +368,7 @@ async def cli_upload_text(
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded(rate)
     
     # Get API key auth (optional)
     api_key_auth = None

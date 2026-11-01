@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app.dependencies import get_firebase_claims
 from core.supabase import get_admin_client
+from core.usernames import assign_username
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +43,20 @@ async def get_session(claims: dict = Depends(get_firebase_claims)) -> SessionPro
     rows = resp.data or []
     if not rows:
         raise HTTPException(status_code=500, detail="Provisioning returned no profile")
+    profile = rows[0]
+
+    # Every user gets a public handle; existing users without one get it here, lazily.
+    if not profile.get("username"):
+        try:
+            profile = {**profile, "username": await asyncio.to_thread(
+                assign_username, client, uid, email, profile.get("display_name") or claims.get("name"),
+            )}
+        except Exception:
+            logger.warning("Username assignment failed for %s", uid, exc_info=True)
 
     return SessionProfile(
         id=uid,
         email=email,
         email_verified=bool(claims.get("email_verified")),
-        profile=rows[0],
+        profile=profile,
     )

@@ -31,9 +31,10 @@ def override_claims(claims):
     app.dependency_overrides[get_firebase_claims] = lambda: claims
 
 
+# A provisioned user who already has a username (assignment is covered in test_usernames.py).
 PROFILE_ROW = {
     "user_id": "uid-1",
-    "username": None,
+    "username": "alice",
     "display_name": None,
     "bio": None,
     "avatar_url": None,

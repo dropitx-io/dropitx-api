@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.dependencies import User, get_current_user, get_client_ip
 from app.dashboard.team_helpers import require_team_member, resolve_team_by_slug
-from core.rate_limit import check_domain_resolve_rate_limit
+from core.rate_limit import check_domain_resolve_rate_limit, rate_limit_exceeded
 from core.supabase import get_admin_client
 from models.domain import AddDomainInput, UpdateDomainBrandInput, DomainVerificationStatus
 
@@ -363,11 +363,7 @@ async def resolve_custom_domain(domain: str, request: Request):
     ip = get_client_ip(request)
     rate = check_domain_resolve_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     client = get_admin_client()
     resp = await asyncio.to_thread(

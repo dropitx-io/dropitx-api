@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 
 from app.dependencies import User, get_client_ip, get_optional_user
 from app.public._share_auth import can_view_share
-from core.rate_limit import check_bulk_download_rate_limit
+from core.rate_limit import check_bulk_download_rate_limit, rate_limit_exceeded
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -103,11 +103,7 @@ async def bulk_download_group(
     ip = get_client_ip(request)
     rate = check_bulk_download_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     # Verify group exists
     group = await _fetch_group(slug)
@@ -151,5 +147,7 @@ async def bulk_download_group(
         headers={
             "Content-Disposition": f'attachment; filename="{zip_filename}"',
             "Content-Length": str(len(zip_bytes)),
+            # The bytes must arrive as stored: no CDN rewriting (e.g. injected scripts).
+            "Cache-Control": "no-transform",
         },
     )

@@ -29,7 +29,11 @@ from core.encryption import (
     generate_iv,
     generate_salt,
 )
-from core.rate_limit import check_password_rate_limit, check_public_read_rate_limit
+from core.rate_limit import (
+    check_password_rate_limit,
+    check_public_read_rate_limit,
+    rate_limit_exceeded,
+)
 from core.supabase import get_admin_client
 from core.thumbnail import remove_thumbnail
 
@@ -140,11 +144,7 @@ async def get_encryption_info(
     ip = get_client_ip(request)
     rate = check_public_read_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     row = await _fetch_share_for_encrypt(slug)
     require_share_visible(row, user)
@@ -287,11 +287,7 @@ async def reencrypt_share(
     ip = get_client_ip(request)
     rate = check_password_rate_limit(ip, slug)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many attempts. Try again later.",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate, "Too many attempts. Try again later.")
 
     row = await _fetch_share_for_encrypt(slug)
 

@@ -40,7 +40,7 @@ For a comprehensive API reference (90+ endpoints across health, documents, keys,
 - **API Key (`shk_` / `sht_` prefix)** — `/api/v1/documents` and `/api/v1/keys`
 - **JWT (Firebase Auth)** — `/api/dashboard/*`, `/api/invite/*`, `/api/upload`, `/api/publish`, `/api/images/upload`, `/api/v1/keys`
 - **Optional JWT** — `/api/upload` (associates file with user if authenticated)
-- **Public (no auth)** — `/api/search`, `/api/analytics/track`, `/api/oembed`, `/api/shares/{slug}/content`, `/api/explore`, `/api/profiles/{handle}`
+- **Public (no auth)** — `/api/search`, `/api/analytics/track`, `/api/oembed`, `/api/shares/{slug}/content`, `/api/explore`, `/api/u/{username}`
 
 ### Key modules
 
