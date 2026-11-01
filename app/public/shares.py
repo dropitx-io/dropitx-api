@@ -80,6 +80,7 @@ async def _fetch_share(
     viewer: User | None = None,
     enforce_private: bool = False,
     owner_check: tuple[User | None, str | None] | None = None,
+    allow_consumed: bool = False,
 ) -> dict:
     """Fetch a share row by slug. Raises 404 if not found, 410 if expired.
 
@@ -87,7 +88,8 @@ async def _fetch_share(
     owns it. With ``owner_check`` (the caller and the delete token they presented)
     the caller must be authorized to modify the share. Both checks run before the
     burned/expired checks so a caller who may not see the share cannot tell it from a
-    missing one by status code.
+    missing one by status code. With ``allow_consumed`` a burned share or a consumed
+    one-time download is returned instead of answering 410, so its owner can delete it.
     """
     client = get_admin_client()
     resp = await asyncio.to_thread(
@@ -107,13 +109,11 @@ async def _fetch_share(
     if owner_check is not None:
         authorize_owner(row, *owner_check)
 
-    # Check if burned
-    if row.get("burned"):
-        raise HTTPException(status_code=410, detail="Share has been burned")
-
-    # Check if one-time download has been consumed
-    if row.get("one_time_download") and (row.get("download_count", 0) >= 1):
-        raise HTTPException(status_code=410, detail="One-time download link has been consumed")
+    if not allow_consumed:
+        if row.get("burned"):
+            raise HTTPException(status_code=410, detail="Share has been burned")
+        if row.get("one_time_download") and (row.get("download_count", 0) >= 1):
+            raise HTTPException(status_code=410, detail="One-time download link has been consumed")
 
     # Check expiration
     if row.get("expires_at"):
@@ -128,8 +128,8 @@ async def _fetch_share(
     return row
 
 
-async def _delete_share_row(row: dict) -> None:
-    """Delete a share and its storage (best-effort)."""
+async def _remove_share_storage(row: dict) -> None:
+    """Remove a share's stored content and thumbnail (best-effort)."""
     client = get_admin_client()
     storage_path = row.get("storage_path")
     if storage_path:
@@ -144,12 +144,41 @@ async def _delete_share_row(row: dict) -> None:
         except Exception:
             logger.warning("Failed to remove storage file %s", storage_path, exc_info=True)
 
+
+async def _delete_share_row(row: dict) -> None:
+    """Delete a share and its storage (best-effort)."""
+    client = get_admin_client()
+    await _remove_share_storage(row)
     try:
         await asyncio.to_thread(
             lambda: client.table("shares").delete().eq("id", row["id"]).execute()
         )
     except Exception:
         logger.warning("Failed to delete share row %s", row["id"], exc_info=True)
+
+
+async def _retire_share_content(row: dict, *, burned: bool) -> None:
+    """Remove a share's content but keep its row as a tombstone that answers 410.
+
+    ``burned`` marks the row burned; a consumed one-time download is already
+    recognised by its download count.
+    """
+    await _remove_share_storage(row)
+    update: dict = {"content_text": None}
+    if burned:
+        update["burned"] = True
+    client = get_admin_client()
+    await asyncio.to_thread(
+        lambda: client.table("shares").update(update).eq("id", row["id"]).execute()
+    )
+
+
+async def _consume_share(row: dict) -> None:
+    """Called once a share's content was served: burn-after-reading and one-time shares lose it."""
+    if row.get("one_time_download"):
+        await _increment_download_count(row["id"])
+    if row.get("burn_after_reading") or row.get("one_time_download"):
+        await _retire_share_content(row, burned=bool(row.get("burn_after_reading")))
 
 
 # ---------------------------------------------------------------------------
@@ -165,7 +194,7 @@ async def get_share_content(
     """View a share's content. Handles:
     - Expiration check (returns 410 if expired)
     - Password protection (empty content with password_protected=true; the owner gets the content)
-    - Burn-after-reading (deletes after first view)
+    - Burn-after-reading (removes the content after the first view)
     - E2E encryption metadata passthrough
     - Download limit enforcement
     """
@@ -218,14 +247,7 @@ async def get_share_content(
     # Increment view count (fire-and-forget)
     asyncio.create_task(_increment_view_count(row["id"]))
 
-    # Burn after reading: delete the share after fetching content
-    if row.get("burn_after_reading"):
-        asyncio.create_task(_delete_share_row(row))
-
-    # One-time download: auto-delete after first view
-    if row.get("one_time_download"):
-        asyncio.create_task(_increment_download_count(row["id"]))
-        asyncio.create_task(_delete_share_row(row))
+    await _consume_share(row)
 
     return ShareContentResponse(
         slug=row["slug"],
@@ -421,7 +443,7 @@ async def delete_share(
     if user is None and not body.delete_token:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    row = await _fetch_share(slug, owner_check=(user, body.delete_token))
+    row = await _fetch_share(slug, owner_check=(user, body.delete_token), allow_consumed=True)
 
     await _delete_share_row(row)
 
@@ -514,14 +536,7 @@ async def unlock_share(
     # Increment view count
     asyncio.create_task(_increment_view_count(row["id"]))
 
-    # Burn after reading
-    if row.get("burn_after_reading"):
-        asyncio.create_task(_delete_share_row(row))
-
-    # One-time download: auto-delete after unlock
-    if row.get("one_time_download"):
-        asyncio.create_task(_increment_download_count(row["id"]))
-        asyncio.create_task(_delete_share_row(row))
+    await _consume_share(row)
 
     return {
         "detail": "Unlocked",
@@ -547,7 +562,9 @@ async def burn_share(
     body: BurnShareRequest | None = None,
     user: User | None = Depends(get_optional_user),
 ):
-    """Burn a share — marks it as consumed. Returns 410 Gone if already burned.
+    """Burn a share — removes its content and keeps the row as a burned tombstone.
+
+    Returns 410 Gone if already burned.
 
     Auth: owner cookie OR delete_token in body.
     """
@@ -560,16 +577,7 @@ async def burn_share(
     # The lookup answers 410 for a burned share, but only after the caller is authorized.
     row = await _fetch_share(slug, owner_check=(user, body.delete_token))
 
-    # Mark as burned
-    client = get_admin_client()
-    if row.get("storage_path"):
-        await remove_thumbnail(row["storage_path"])
-    await asyncio.to_thread(
-        lambda: client.table("shares")
-        .update({"burned": True})
-        .eq("id", row["id"])
-        .execute()
-    )
+    await _retire_share_content(row, burned=True)
 
     logger.info("Share %s burned", slug)
 
@@ -642,19 +650,14 @@ async def download_share(
         logger.error("Download failed for %s: %s", storage_path, exc)
         raise HTTPException(status_code=500, detail="Failed to download content") from exc
 
-    # Increment download count
-    asyncio.create_task(_increment_download_count(row["id"]))
+    # Increment download count (a one-time download counts itself when consumed)
+    if not row.get("one_time_download"):
+        asyncio.create_task(_increment_download_count(row["id"]))
 
     # Increment view count
     asyncio.create_task(_increment_view_count(row["id"]))
 
-    # Burn after reading
-    if row.get("burn_after_reading"):
-        asyncio.create_task(_delete_share_row(row))
-
-    # One-time download: auto-delete after first download
-    if row.get("one_time_download"):
-        asyncio.create_task(_delete_share_row(row))
+    await _consume_share(row)
 
     # Determine filename
     filename = row.get("filename") or f"{slug}.html"
