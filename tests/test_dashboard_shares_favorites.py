@@ -13,7 +13,7 @@ import pytest
 
 from app.main import app
 from core.security import hash_password
-from tests.conftest import Seed, act_as, walk_keys
+from tests.conftest import Seed, act_as, unique_ip, walk_keys
 
 SECRET_KEYS = {"password_hash", "delete_token", "content", "content_text", "storage_path"}
 
@@ -121,6 +121,49 @@ class TestMyShares:
         resp = client.get("/api/dashboard/shares?limit=100")
 
         assert resp.status_code == 200 and resp.json()["limit"] == 100
+
+    def _batch(self, client, seed, files) -> dict:
+        resp = client.post(
+            "/api/upload/batch",
+            files=[("files", (name, body, "text/markdown")) for name, body in files],
+            headers=unique_ip(),
+        )
+        assert resp.status_code == 200, resp.text
+        batch = resp.json()
+        seed.groups.append(batch["group_slug"])
+        for f in batch["files"]:
+            seed.adopt(f["slug"])
+        return batch
+
+    def test_batch_uploaded_shares_are_listed_one_item_each_with_their_group(self, client, seed):
+        """A group is not collapsed: each grouped share is its own item, carrying group_id."""
+        me = seed.user()
+        act_as(me)
+        single = seed.share(me, is_private=False, created_at=_ago(5))
+        batch = self._batch(client, seed, [("a.md", b"# a"), ("b.md", b"# b")])
+
+        body = client.get("/api/dashboard/shares").json()
+
+        by_slug = {i["slug"]: i for i in body["items"]}
+        assert set(by_slug) == {single["slug"], *(f["slug"] for f in batch["files"])}
+        assert body["total"] == 3
+        for f in batch["files"]:
+            assert by_slug[f["slug"]]["group_id"] == batch["group_slug"]
+            assert by_slug[f["slug"]]["is_owner"] is True
+        assert by_slug[single["slug"]]["group_id"] is None
+
+    def test_an_anonymous_batch_has_no_owner_and_is_in_nobodys_list(self, client, seed):
+        """Ownership is decided at upload: without a signed-in user the shares are ownerless."""
+        me = seed.user()
+        act_as(None)
+        batch = self._batch(client, seed, [("a.md", b"# a")])
+        act_as(me)
+
+        body = client.get("/api/dashboard/shares").json()
+
+        assert body["items"] == []
+        row = seed.db.table("shares").select("user_id").eq("slug", batch["files"][0]["slug"]).execute().data[0]
+        assert row["user_id"] is None
 
 
 # ---------------------------------------------------------------------------
