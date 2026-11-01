@@ -12,8 +12,10 @@ from pydantic import BaseModel, Field
 from app.dependencies import ApiKeyAuth, get_api_key
 from app.v1.document_helpers import (
     bucket_for,
+    content_is_gone,
     extract_plain_text,
     fetch_content,
+    fetch_listing_content,
     find_document,
     infer_mime,
     team_key_may_read,
@@ -238,7 +240,7 @@ async def list_documents(
 
     results = []
     for row in rows:
-        content = await fetch_content(client, row)
+        content = await fetch_listing_content(client, row)
         results.append(_to_response(row, content))
     return results
 
@@ -261,7 +263,10 @@ async def get_document(
         if dt.now(timezone.utc) > expires:
             raise HTTPException(status_code=410, detail="Document has expired")
 
-    content = await fetch_content(client, row)
+    if content_is_gone(row):
+        raise HTTPException(status_code=410, detail="Document has been burned")
+
+    content = await fetch_content(client, row, binary_as_empty=True)
     return _to_response(row, content)
 
 
