@@ -225,6 +225,7 @@ async def restore_version(
     )
 
     # Copy the version's own snapshot over the share's live object
+    content_type = f"{share_row.get('mime_type') or 'text/html'}; charset=utf-8"
     try:
         content_bytes = await asyncio.to_thread(
             lambda: client.storage.from_(_BUCKET).download(restored_storage_path)
@@ -234,7 +235,7 @@ async def restore_version(
             lambda: client.storage.from_(_BUCKET).upload(
                 share_storage_path,
                 content_bytes,
-                file_options={"content-type": "text/html; charset=utf-8", "upsert": "true"},
+                file_options={"content-type": content_type, "upsert": "true"},
             ),
         )
     except Exception as exc:
