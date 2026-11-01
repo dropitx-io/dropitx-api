@@ -122,14 +122,19 @@ async def accept_invite(
 
 
 async def _record_member_joined(team_id: str, user_id: str) -> None:
+    """Best-effort, like every team event: the invite is already accepted."""
     client = get_admin_client()
-    membership = await asyncio.to_thread(
-        lambda: client.table("team_members")
-        .select("role")
-        .eq("team_id", team_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
+    try:
+        membership = await asyncio.to_thread(
+            lambda: client.table("team_members")
+            .select("role")
+            .eq("team_id", team_id)
+            .eq("user_id", user_id)
+            .execute()
+        )
+    except Exception:
+        logger.warning("Failed to look up the new member of team %s", team_id, exc_info=True)
+        return
     if membership.data:
         await record_team_event(team_id, user_id, "member_joined", {"role": membership.data[0]["role"]})
 

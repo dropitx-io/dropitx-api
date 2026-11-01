@@ -83,6 +83,29 @@ class TestMembershipEvents:
         assert event["user_id"] == joiner.id
         assert event["payload"] == {"role": "editor"}
 
+    def test_a_failed_event_lookup_never_fails_the_accepted_invite(self, client, seed, team, monkeypatch):
+        invite = _invite(client, team, role="viewer")
+        joiner = seed.user()
+        real = get_admin_client()
+
+        class MembersUnavailable:
+            def rpc(self, *args, **kwargs):
+                return real.rpc(*args, **kwargs)
+
+            def table(self, name):
+                if name == "team_members":
+                    raise RuntimeError("database unavailable")
+                return real.table(name)
+
+        monkeypatch.setattr("app.dashboard.invitations.get_admin_client", lambda: MembersUnavailable())
+        act_as(joiner)
+
+        resp = client.post("/api/invite/accept", json={"token": invite["token"]})
+
+        assert resp.status_code == 200, resp.text
+        member = real.table("team_members").select("role").eq("team_id", team["id"]).eq("user_id", joiner.id)
+        assert member.execute().data == [{"role": "viewer"}]
+
     def test_owner_removing_a_member_records_member_removed(self, client, seed, team):
         member = _member(seed, team)
         act_as(team["owner"])
