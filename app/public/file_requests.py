@@ -10,7 +10,7 @@ from fastapi.exceptions import HTTPException as HTTPExc
 
 from app.dependencies import get_client_ip
 from core.config import settings
-from core.rate_limit import check_upload_rate_limit
+from core.rate_limit import check_upload_rate_limit, rate_limit_exceeded
 from core.supabase import get_admin_client
 
 logger = logging.getLogger(__name__)
@@ -126,7 +126,7 @@ async def upload_to_file_request(
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
-        raise HTTPExc(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded(rate)
 
     client = get_admin_client()
 

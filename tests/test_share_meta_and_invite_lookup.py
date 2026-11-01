@@ -5,6 +5,7 @@ Runs against the real Postgres + MinIO from CI. Only authentication is overridde
 
 from __future__ import annotations
 
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -293,13 +294,15 @@ class TestShareMeta:
         act_as(None)
         monkeypatch.setattr(
             "app.public.shares.check_share_meta_rate_limit",
-            lambda ip: RateLimitResult(success=False, limit=300, remaining=0, reset=30),
+            lambda ip: RateLimitResult(
+                success=False, limit=300, remaining=0, reset=int(time.time()) + 30,
+            ),
         )
 
         resp = client.get(f"/api/shares/{share['slug']}")
 
         assert resp.status_code == 429
-        assert resp.headers["retry-after"] == "30"
+        assert 29 <= int(resp.headers["retry-after"]) <= 30
 
     def test_neighbouring_share_routes_are_not_shadowed(self, client, seed):
         owner = seed.user()

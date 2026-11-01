@@ -8,11 +8,11 @@ import logging
 import re
 from urllib.parse import urlsplit
 
-from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi import APIRouter, Request, Response
 
 from app.dependencies import get_client_ip
 from core.config import settings
-from core.rate_limit import check_analytics_rate_limit
+from core.rate_limit import check_analytics_rate_limit, rate_limit_exceeded
 from core.supabase import get_admin_client
 from models.analytics import AnalyticsTrack
 
@@ -81,11 +81,7 @@ async def track_view(request: Request, body: AnalyticsTrack):
     ip = get_client_ip(request)
     rate = check_analytics_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     client = get_admin_client()
     try:

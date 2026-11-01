@@ -17,6 +17,7 @@ from core.rate_limit import (
     check_password_rate_limit,
     check_public_read_rate_limit,
     check_share_meta_rate_limit,
+    rate_limit_exceeded,
 )
 from core.security import hash_password, verify_password
 from core.supabase import get_admin_client
@@ -213,11 +214,7 @@ async def get_share_content(
     ip = get_client_ip(request)
     rate = check_public_read_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
@@ -344,11 +341,7 @@ async def get_share_meta(
     """
     rate = check_share_meta_rate_limit(get_client_ip(request))
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     client = get_admin_client()
     resp = await asyncio.to_thread(
@@ -512,11 +505,7 @@ async def unlock_share(
     ip = get_client_ip(request)
     rate = check_password_rate_limit(ip, slug)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Too many attempts. Try again later.",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate, "Too many attempts. Try again later.")
 
     row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
@@ -617,11 +606,7 @@ async def download_share(
     ip = get_client_ip(request)
     rate = check_public_read_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     row = await _fetch_share(slug, viewer=user, enforce_private=True)
 
@@ -640,11 +625,7 @@ async def download_share(
             ip = get_client_ip(request)
             rate = check_password_rate_limit(ip, slug)
             if not rate.success:
-                raise HTTPException(
-                    status_code=429,
-                    detail="Too many attempts. Try again later.",
-                    headers={"Retry-After": str(max(rate.reset, 1))},
-                )
+                raise rate_limit_exceeded(rate, "Too many attempts. Try again later.")
             raise HTTPException(status_code=401, detail="Incorrect password")
 
     # Fetch content from storage
@@ -711,11 +692,7 @@ async def get_download_status(
     ip = get_client_ip(request)
     rate = check_public_read_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     client = get_admin_client()
     try:

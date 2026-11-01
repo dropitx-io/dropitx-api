@@ -11,13 +11,13 @@ import logging
 import mimetypes
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel
 
 from app.public.shares import _check_download_limit, _fetch_share
 from app.dependencies import User, get_client_ip, get_optional_user
 from core.db import public_object_url
-from core.rate_limit import check_public_read_rate_limit
+from core.rate_limit import check_public_read_rate_limit, rate_limit_exceeded
 from core.share_urls import share_page_url
 from core.supabase import get_admin_client
 from core.thumbnail import thumbnail_key
@@ -288,11 +288,7 @@ async def get_share_preview(
     ip = get_client_ip(request)
     rate = check_public_read_rate_limit(ip)
     if not rate.success:
-        raise HTTPException(
-            status_code=429,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(max(rate.reset, 1))},
-        )
+        raise rate_limit_exceeded(rate)
 
     row = await _fetch_share(slug, viewer=user, enforce_private=True)
 

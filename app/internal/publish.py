@@ -14,7 +14,7 @@ from app.dependencies import User, get_client_ip, get_current_user
 from core.extract_text import extract_text_from_html
 from core.language_detect import detect_language
 from core.nanoid import generate_delete_token, generate_slug
-from core.rate_limit import check_upload_rate_limit
+from core.rate_limit import check_upload_rate_limit, rate_limit_exceeded
 from core.security import hash_password
 from core.share_urls import share_page_url
 from core.supabase import get_admin_client
@@ -79,7 +79,7 @@ async def publish(
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded(rate)
 
     # Resolve slug
     slug: str
@@ -273,7 +273,7 @@ async def update_publish(
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded(rate)
 
     client = get_admin_client()
 

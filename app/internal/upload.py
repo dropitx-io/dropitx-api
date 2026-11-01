@@ -14,7 +14,7 @@ from core.config import settings
 from core.extract_text import extract_text_from_html, extract_text_from_markdown
 from core.language_detect import detect_language, get_all_languages
 from core.nanoid import generate_delete_token, generate_slug
-from core.rate_limit import check_upload_rate_limit
+from core.rate_limit import check_upload_rate_limit, rate_limit_exceeded
 from core.security import hash_password
 from core.share_urls import share_page_url
 from core.supabase import get_admin_client
@@ -200,7 +200,7 @@ async def upload(
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded(rate)
 
     # Validate encryption params
     # Note: IV and salt are packed into the ciphertext by the client's crypto.ts,
@@ -353,7 +353,7 @@ async def upload_batch(
     ip = get_client_ip(request)
     rate = await asyncio.to_thread(check_upload_rate_limit, ip)
     if not rate.success:
-        raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        raise rate_limit_exceeded(rate)
 
     # Validate max_downloads (A3)
     if max_downloads is not None and max_downloads < 1:
