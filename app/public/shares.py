@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+from app.dashboard.team_helpers import record_share_removed
 from app.dependencies import User, get_client_ip, get_current_user, get_optional_user
 from app.public._share_auth import authorize_owner, can_view_share, require_share_visible
 from core.rate_limit import (
@@ -170,9 +171,10 @@ async def _remove_share_storage(row: dict) -> None:
             logger.warning("Failed to remove storage file %s", storage_path, exc_info=True)
 
 
-async def delete_share_row(row: dict) -> None:
-    """Delete a share and its storage (best-effort)."""
+async def delete_share_row(row: dict, actor_id: str | None = None) -> None:
+    """Delete a share and its storage (best-effort). ``actor_id`` is None when nobody asked (expiry)."""
     client = get_admin_client()
+    await record_share_removed(row, actor_id)
     await _remove_share_storage(row)
     try:
         await asyncio.to_thread(
@@ -472,7 +474,7 @@ async def delete_share(
 
     row = await _fetch_share(slug, owner_check=(user, body.delete_token), allow_consumed=True)
 
-    await delete_share_row(row)
+    await delete_share_row(row, user.id if user else None)
 
     return {"detail": "Share deleted"}
 

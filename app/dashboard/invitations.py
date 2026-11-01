@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from app.dashboard.team_helpers import record_team_event
 from app.dependencies import User, get_current_user, get_optional_claims
 from core.supabase import get_admin_client
 from models.team import InviteLookup
@@ -109,13 +110,28 @@ async def accept_invite(
                 "p_user_id": user.id,
             }).execute()
         )
-        return {"detail": "Invite accepted", "data": resp.data}
     except Exception as exc:
         logger.warning("Accept invite failed: %s", exc)
         raise HTTPException(
             status_code=400,
             detail=str(exc) if "expired" in str(exc).lower() else "Failed to accept invite",
         ) from exc
+    for row in resp.data or []:
+        await _record_member_joined(row["team_id"], user.id)
+    return {"detail": "Invite accepted", "data": resp.data}
+
+
+async def _record_member_joined(team_id: str, user_id: str) -> None:
+    client = get_admin_client()
+    membership = await asyncio.to_thread(
+        lambda: client.table("team_members")
+        .select("role")
+        .eq("team_id", team_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    if membership.data:
+        await record_team_event(team_id, user_id, "member_joined", {"role": membership.data[0]["role"]})
 
 
 @invite_actions_router.post("/invite/decline", tags=["Invitations"])

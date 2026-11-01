@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from app.dashboard.team_helpers import record_share_removed, record_team_event
 from app.dependencies import ApiKeyAuth, get_api_key
 from app.v1.document_helpers import (
     bucket_for,
@@ -196,6 +197,10 @@ async def create_document(
             )
         except Exception as exc:
             logger.warning("team_shares insert failed for %s: %s", slug, exc)
+        else:
+            await record_team_event(auth.team_id, auth.user_id, "share_added", {
+                "share_id": share_row["id"], "slug": slug,
+            })
 
     return _to_response(share_row, body.content)
 
@@ -349,6 +354,7 @@ async def delete_document(
     """Delete a document and its storage object."""
     client = get_admin_client()
     row = await find_document(client, slug, auth)
+    await record_share_removed(row, auth.user_id)
 
     bucket = bucket_for(row)
     await remove_thumbnail(row["storage_path"])

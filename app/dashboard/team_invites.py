@@ -16,6 +16,7 @@ from app.dependencies import User, get_current_user
 from app.dashboard.team_helpers import (
     generate_invite_token,
     get_invite_expiry,
+    record_team_event,
     require_team_member,
     resolve_team_by_slug,
 )
@@ -90,9 +91,20 @@ async def create_invite(
         }).execute()
     )
 
+    await _record_invite_sent(team["id"], user.id, resp.data)
     invite_url = f"{settings.frontend_url}/invite/{token}"
     result = resp.data if isinstance(resp.data, dict) else {"token": token}
     return {**result, "invite_url": invite_url}
+
+
+async def _record_invite_sent(team_id: str, actor_id: str, rpc_rows) -> None:
+    """invite_sent for the row create_team_invite returned; the token is never part of an event."""
+    rows = rpc_rows if isinstance(rpc_rows, list) else [rpc_rows]
+    for row in rows:
+        if isinstance(row, dict):
+            await record_team_event(team_id, actor_id, "invite_sent", {
+                "invite_id": str(row["id"]), "email": row["email"], "role": row["role"],
+            })
 
 
 @router.delete("/teams/{slug}/invites", tags=["Team Invites"])
@@ -112,13 +124,17 @@ async def revoke_invite(
         raise HTTPException(status_code=422, detail="invite_id required")
 
     client = get_admin_client()
-    await asyncio.to_thread(
+    deleted = await asyncio.to_thread(
         lambda: client.table("team_invites")
         .delete()
         .eq("id", invite_id)
         .eq("team_id", team["id"])
         .execute()
     )
+    for row in deleted.data or []:
+        await record_team_event(team["id"], user.id, "invite_revoked", {
+            "invite_id": str(row["id"]), "email": row["email"],
+        })
     return {"detail": "Invite revoked"}
 
 
@@ -147,7 +163,7 @@ async def bulk_invite(
         token = generate_invite_token()
         expiry = get_invite_expiry()
         try:
-            await asyncio.to_thread(
+            created = await asyncio.to_thread(
                 lambda e=email, t=token: client.rpc("create_team_invite", {
                     "p_team_id": team["id"],
                     "p_email": e,
@@ -165,6 +181,8 @@ async def bulk_invite(
             else:
                 logger.warning("Bulk invite error for %s: %s", email, exc)
                 errors += 1
+        else:
+            await _record_invite_sent(team["id"], user.id, created.data)
 
     return {"success": success, "duplicate": duplicate, "errors": errors}
 

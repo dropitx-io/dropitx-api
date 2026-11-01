@@ -9,7 +9,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.dependencies import User, get_current_user
-from app.dashboard.team_helpers import require_team_member, resolve_team_by_slug
+from app.dashboard.team_helpers import record_team_event, require_team_member, resolve_team_by_slug
 from core.supabase import get_admin_client
 from models.team import CreateTeamInput
 
@@ -164,6 +164,7 @@ async def change_member_role(
         raise HTTPException(status_code=422, detail="user_id and role required")
 
     client = get_admin_client()
+    target = await _membership(team["id"], target_user_id)
     await asyncio.to_thread(
         lambda: client.rpc("change_team_member_role", {
             "p_team_id": team["id"],
@@ -171,6 +172,10 @@ async def change_member_role(
             "p_new_role": new_role,
         }).execute()
     )
+    if target is not None:
+        await record_team_event(team["id"], user.id, "role_changed", {
+            "user_id": target_user_id, "role": new_role, "previous_role": target["role"],
+        })
     return {"detail": "Role updated"}
 
 
@@ -195,10 +200,27 @@ async def remove_member(
         await require_team_member(user.id, team["id"])
 
     client = get_admin_client()
+    target = await _membership(team["id"], target_user_id)
     await asyncio.to_thread(
         lambda: client.rpc("remove_team_member", {
             "p_team_id": team["id"],
             "p_user_id": target_user_id,
         }).execute()
     )
+    if target is not None:
+        event_type = "member_left" if target_user_id == user.id else "member_removed"
+        await record_team_event(team["id"], user.id, event_type, {"user_id": target_user_id})
     return {"detail": "Member removed"}
+
+
+async def _membership(team_id: str, user_id: str) -> dict | None:
+    """The membership row of `user_id` in the team, or None when they are not a member."""
+    client = get_admin_client()
+    resp = await asyncio.to_thread(
+        lambda: client.table("team_members")
+        .select("role")
+        .eq("team_id", team_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return resp.data[0] if resp.data else None
