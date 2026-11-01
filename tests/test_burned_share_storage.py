@@ -95,3 +95,36 @@ class TestDeletingABurnedShare:
 
         assert resp.status_code == 403
         assert _row(seed, share) is not None
+
+
+def _revisions(seed, share: dict) -> list[dict]:
+    return seed.db.table("share_revisions").select("id").eq("share_id", share["id"]).execute().data
+
+
+class TestBurningRemovesDocumentRevisions:
+    """A v1 document's revisions hold earlier copies of its content: they go when it burns."""
+
+    def _with_revision(self, seed, share: dict) -> None:
+        seed.db.table("share_revisions").insert(
+            {"share_id": share["id"], "revision": 1, "content": "earlier secret"}
+        ).execute()
+        assert len(_revisions(seed, share)) == 1
+
+    def test_owner_burn_deletes_the_revisions(self, client, seed):
+        owner = seed.user()
+        share = seed.share(owner, is_private=False)
+        self._with_revision(seed, share)
+        act_as(owner)
+
+        assert client.post(f"/api/shares/{share['slug']}/burn", json={}).status_code == 200
+
+        assert _revisions(seed, share) == []
+
+    def test_burn_after_reading_deletes_the_revisions(self, client, seed):
+        share = seed.share(seed.user(), body=PUBLIC_BODY, is_private=False, burn_after_reading=True)
+        self._with_revision(seed, share)
+        act_as(None)
+
+        assert client.get(f"/api/shares/{share['slug']}/content", headers=unique_ip()).status_code == 200
+
+        assert _revisions(seed, share) == []

@@ -178,6 +178,10 @@ async def _retire_share_content(row: dict, *, burned: bool) -> None:
     await asyncio.to_thread(
         lambda: client.table("share_versions").delete().eq("share_slug", row["slug"]).execute()
     )
+    # v1 document revisions hold earlier copies of the content in the row itself.
+    await asyncio.to_thread(
+        lambda: client.table("share_revisions").delete().eq("share_id", row["id"]).execute()
+    )
     update: dict = {"content_text": None}
     if burned:
         update["burned"] = True
