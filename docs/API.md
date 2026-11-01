@@ -56,6 +56,8 @@ All unhandled exceptions are normalized by the handlers in `app/main.py:92-139` 
 | 403 | `password_required` | `SharePasswordRequired` — password-protected share accessed without unlock |
 | 404 | `not_found` | `ShareNotFoundError` |
 | 429 | `rate_limit_exceeded` | `RateLimitError` — includes `Retry-After` header |
+
+Every 429 a rate limit produces (`core.rate_limit.rate_limit_exceeded`) carries `Retry-After` as whole seconds until the window resets, at least 1. CORS lists it in `Access-Control-Expose-Headers`, so browser code can read it.
 | 500 | `internal_error` | Catch-all `Exception` handler |
 
 `request_id` is propagated by `RequestTrackingMiddleware` and the `request_id_var` context variable from `core/logging_config.py`.
@@ -119,7 +121,7 @@ Source: `app/v1/profile.py`. Authenticates with a Firebase token, not an API key
 
 | Method | Path | Description |
 |---|---|---|
-| PUT | `/api/v1/profile` | Set the caller's display name. Body `ProfileUpdate {display_name}`, trimmed, 1-100 characters (422 otherwise). Creates the caller's `user_profiles` row when missing. Returns `ProfileResponse {display_name, avatar_url}` only. |
+| PUT | `/api/v1/profile` | Set the caller's display name, and optionally username and visibility. Body `ProfileUpdate {display_name, username?, is_public?}`: `display_name` trimmed, 1-100 characters; `username` trimmed and lowercased, then 3-30 of `a-z 0-9 -` starting and ending with a letter or digit and not reserved (`admin api dashboard auth s u embed`) — 422 otherwise, 409 when another user has it. Omitted optional fields are unchanged. Creates the caller's `user_profiles` row when missing. Returns `ProfileResponse {display_name, avatar_url, username, is_public}` only. |
 
 ## v1 — Revisions (API key)
 
@@ -139,7 +141,7 @@ Sources: `app/dashboard/shares.py`, `app/v1/favorites.py`. Both authenticate wit
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/dashboard/shares?page=1&limit=20` | The caller's own shares, newest first, private and expired included. `page` >= 1, 1 <= `limit` <= 100 (422 otherwise). Returns `{items, total, page, limit}`. |
+| GET | `/api/dashboard/shares?page=1&limit=20` | The caller's own shares, newest first, private and expired included. Shares of a batch upload are separate items, each with its `group_id` (groups are not collapsed). `page` >= 1, 1 <= `limit` <= 100 (422 otherwise). Returns `{items, total, page, limit}`. |
 | GET | `/api/dashboard/analytics/top-shares?limit=10` | `{totals: {share_count, total_views, total_size, unique_views, shares_with_views}, top: [{share_id, slug, title, total_views, unique_views}]}`. `totals` cover all the caller's shares (private, expired and burned included; `total_views` sums `shares.view_count`, a missing size counts as 0; `unique_views` and `shares_with_views` count the last 30 calendar days (UTC) of views across all of them). `top` ranks unexpired shares by views in the last 30 days. 1 <= `limit` <= 50 (422 otherwise). Source: `app/dashboard/analytics.py`. |
 | GET | `/api/dashboard/shares/{slug}/analytics?days=30` | Owner only; any other caller gets the same 404 as a missing slug. Returns `{share: {slug, title, filename}, days, summary, timeseries, referrers, geo}`: `summary` = `{total_views, unique_views, views_today, views_7d, avg_daily_views}`, `timeseries` = one `{date, views, unique_views}` per day, zero-filled, oldest first; `referrers` = top 10 `{referrer_source, views}`; `geo` = top 10 `{country_code, views}` (views with no country omitted). 1 <= `days` <= 365 (422 otherwise). |
 | GET | `/api/v1/favorites` | The caller's favorites, newest first: `ShareMeta` plus `favorited_at`. Private shares the caller does not own, and burned or expired shares the caller does not own, are omitted. |
@@ -175,7 +177,7 @@ Source: `app/dashboard/team_invites.py`. Routes are registered onto the `teams_r
 | DELETE | `/api/dashboard/teams/{slug}/invites` | editor+ | Revoke invite. Body: `{invite_id}`. |
 | POST | `/api/dashboard/teams/{slug}/invites/bulk` | editor+ | Bulk invite up to 50 emails. Body: `{emails[], role}`. |
 | POST | `/api/dashboard/teams/{slug}/invites/{invite_id}/resend` | editor+ | Resend (rotates token if expired). |
-| GET | `/api/dashboard/teams/{slug}/events` | member | Team audit events. Query: `limit` (≤200), `offset`. |
+| GET | `/api/dashboard/teams/{slug}/events` | member | Team audit events, newest first: `{id, team_id, user_id, event_type, payload, created_at}`. Query: `limit` (≤200), `offset`. Event types and payloads: see README § Team events. |
 | GET | `/api/dashboard/teams/{slug}/shares` | member | Shares attached to the team. Query: `limit` (≤200), `offset`. |
 
 ## Dashboard — Custom Domains (JWT)
@@ -213,11 +215,11 @@ Source: `app/public/shares.py` (mounted under `/api`). Mixed auth.
 |---|---|---|---|
 | GET | `/api/shares/{slug}` | Public (optional auth) | Share metadata and access state (`ShareMeta`): `has_password`, `burned`, `one_time_download`, `is_owner`, `has_owner`, `group_files[]` (each item carries `has_password`, `burn_after_reading` and `one_time_download`, so a client can warn before revealing one; password siblings are listed; private, burned and expired ones hidden). Rate limited to 300/min per IP (429). No content, hash or delete token; never counts a view or burns. Private and not owner 404, expired 410. |
 | GET | `/api/shares/{slug}/content` | Public (optional auth) | View content. Handles expiration (410), password protection, burn-after-reading, E2E metadata passthrough, and download-limit enforcement. A password-protected share returns `content: ""` and `password_protected: true` to everyone except its signed-in owner, who gets the real `content` (still with `password_protected: true`) and the same view-count, burn and one-time side effects as for an unprotected share. |
-| DELETE | `/api/shares/{slug}` | Owner token | Delete share. Body `DeleteShareRequest?` with `delete_token`. A wrong token is 404 on a private share (same as a missing share) and 403 on a public one. |
+| DELETE | `/api/shares/{slug}` | Owner token | Delete share, its stored file, thumbnails, multi-file files (`share_files`) and version snapshots. Body `DeleteShareRequest?` with `delete_token`. A wrong token is 404 on a private share (same as a missing share) and 403 on a public one. |
 | POST | `/api/shares/{slug}/set-password` | Owner token | Set or clear password. Body `SetPasswordRequest(password?, delete_token?)`. A wrong token is 404 on a private share (same as a missing share) and 403 on a public one. |
 | POST | `/api/shares/{slug}/unlock` | Public | Verify password (rate-limited 5/10min). Body `UnlockRequest`. |
-| POST | `/api/shares/{slug}/burn` | Owner token | Mark share consumed; 410 if already burned, for authorised callers only. Body `BurnShareRequest?`. A wrong token is 404 on a private share (same as a missing share, burned or not) and 403 on a public one. |
-| GET | `/api/shares/{slug}/download` | Public | Download as file attachment. Supports `?password=` for protected shares. |
+| POST | `/api/shares/{slug}/burn` | Owner token | Burn the share: deletes its content (file, thumbnails, multi-file files, version snapshots and v1 `share_revisions`) and keeps the row as a burned tombstone that answers 410; 410 if already burned, for authorised callers only. Body `BurnShareRequest?`. A wrong token is 404 on a private share (same as a missing share, burned or not) and 403 on a public one. |
+| GET | `/api/shares/{slug}/download` | Public | Download as file attachment, served with the share's `mime_type` and `Cache-Control: no-transform` (a CDN must not rewrite the bytes). Supports `?password=` for protected shares. |
 | GET | `/api/shares/{slug}/download-status` | Public | Availability, `max_downloads`, `download_count`, `burn_after_reading`, `expired`, `consumed`. |
 
 ## Public — Search / Analytics / oEmbed / QR / Languages
@@ -282,8 +284,8 @@ Sources: `app/public/explore.py`, `app/public/stars.py`, `app/public/profiles.py
 | GET | `/api/shares/{slug}/star` | JWT optional | Star count + whether the caller has starred. |
 | POST | `/api/shares/{slug}/star` | JWT | Star a share. |
 | DELETE | `/api/shares/{slug}/star` | JWT | Unstar a share. |
-| GET | `/api/u/{username}` | Public | Public profile. |
-| GET | `/api/u/{username}/shares` | Public | A user's public shares. Query: `page`, `limit` (≤100), `sort` (`recent\|views\|stars`). |
+| GET | `/api/u/{username}` | Public | Public profile `{username, display_name, avatar_url, bio, share_count, total_views, total_stars}`; the lookup ignores case. 404 unless the profile has `is_public`. Never the email or user id. |
+| GET | `/api/u/{username}/shares` | Public | The profile's open shares (`{shares[{slug, filename, title, tags, view_count, star_count, created_at}], page, limit, has_more}`): private, password-protected, burned, expired, burn-after-reading and one-time-download shares are left out, and the stats above count the same set. Query: `page`, `limit` (≤100), `sort` (`recent\|views\|stars`). |
 
 ## Public — File Requests (uploader-facing)
 
@@ -302,8 +304,8 @@ Source: `app/internal/publish.py` (mounted under `/api`). Both routes require a 
 
 | Method | Path | Description |
 |---|---|---|
-| POST | `/api/publish` | Publish editor HTML. Body `PublishRequest(content, …)`. Returns `PublishResponse(slug, url, …)`. |
-| PUT | `/api/publish/{slug}` | Update an existing share; saves previous version to history. Body `UpdatePublishRequest`. Returns `PublishResponse`. |
+| POST | `/api/publish` | Publish editor content. Body `PublishRequest(content, …)`. Returns `PublishResponse(slug, url, …)`. Content type: `text/markdown` when `language` is `markdown` or `filename` ends `.md` (default filename `<slug>.md`), else `text/html` (`<slug>.html`). A `custom_slug` is used as given (no username prefix); 409 if taken. |
+| PUT | `/api/publish/{slug}` | Update an existing share; saves previous version to history and keeps the share's content type (also on version restore). Body `UpdatePublishRequest`. Returns `PublishResponse`. |
 
 `PublishRequest` notable fields: `content` (1–10 MB), `filename?`, `title?`, `custom_slug?`, `max_downloads?`, `expires_in?` (`1h\|6h\|24h\|7d\|30d` or seconds), `encrypted`, `encryption_iv?`, `encryption_salt?`, `burn_after_reading`, `one_time_download`, `password?`, `language?`.
 
@@ -339,7 +341,7 @@ Source: `app/internal/download.py` (mounted under `/api`).
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/api/download/group/{slug}` | Stream all files in a share group as a single ZIP. 404 if group has no files. |
+| GET | `/api/download/group/{slug}` | Stream all files in a share group as a single ZIP, with `Cache-Control: no-transform`. 404 if group has no files. |
 
 ## Internal — File Requests (owner, JWT)
 

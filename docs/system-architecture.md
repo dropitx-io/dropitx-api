@@ -98,7 +98,7 @@ All routes under `/api` prefix, grouped by authentication method:
 ├── /explore                      [Public]
 │   └── ?tag=...&sort=...         → Gallery (trending, tag-filtered)
 │
-├── /profiles/{handle}            [Public]
+├── /u/{username}                 [Public]
 │   └── Get user profile + shares
 │
 ├── /analytics/track              [Public]
