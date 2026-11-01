@@ -96,14 +96,45 @@ def bucket_for(row: dict) -> str:
     return _UPLOAD_BUCKET if row.get("source") in ("upload", "editor") else _STORAGE_BUCKET
 
 
-async def fetch_content(client, row: dict) -> str:
-    """Download and decode a share's content from storage."""
+def content_is_gone(row: dict) -> bool:
+    """A burned share or a consumed one-time download has no stored content left."""
+    return bool(row.get("burned")) or bool(
+        row.get("one_time_download") and (row.get("download_count") or 0) >= 1
+    )
+
+
+async def fetch_content(client, row: dict, *, binary_as_empty: bool = False) -> str:
+    """Download and decode a share's content from storage.
+
+    With ``binary_as_empty`` content that is not UTF-8 text (a server-side encrypted
+    share) reads as "" instead of failing; the row's ``encrypted`` flag says why.
+    """
     storage_path = row["storage_path"]
     try:
         resp = await asyncio.to_thread(
             lambda: client.storage.from_(bucket_for(row)).download(storage_path),
         )
-        return resp.decode("utf-8") if isinstance(resp, bytes) else str(resp)
     except Exception as exc:
         logger.error("Content download failed for %s: %s", storage_path, exc)
         raise HTTPException(status_code=500, detail="Failed to fetch document content") from exc
+    if not isinstance(resp, bytes):
+        return str(resp)
+    try:
+        return resp.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        if binary_as_empty:
+            logger.warning("Content of %s is not UTF-8 text; returning it without content", storage_path)
+            return ""
+        logger.error("Content download failed for %s: %s", storage_path, exc)
+        raise HTTPException(status_code=500, detail="Failed to fetch document content") from exc
+
+
+async def fetch_listing_content(client, row: dict) -> str:
+    """Content for one item of a document list: an unreadable document reads as "" so it never fails the list."""
+    if content_is_gone(row):
+        return ""
+    try:
+        return await fetch_content(client, row, binary_as_empty=True)
+    except HTTPException:
+        logger.warning("Listing document %s without content", row.get("slug"))
+        return ""
