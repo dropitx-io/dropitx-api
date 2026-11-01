@@ -147,5 +147,7 @@ async def bulk_download_group(
         headers={
             "Content-Disposition": f'attachment; filename="{zip_filename}"',
             "Content-Length": str(len(zip_bytes)),
+            # The bytes must arrive as stored: no CDN rewriting (e.g. injected scripts).
+            "Cache-Control": "no-transform",
         },
     )

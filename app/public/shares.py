@@ -684,6 +684,8 @@ async def download_share(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(len(content_bytes)),
+            # The bytes must arrive as stored: no CDN rewriting (e.g. injected scripts).
+            "Cache-Control": "no-transform",
         },
     )
 
