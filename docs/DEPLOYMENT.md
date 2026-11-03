@@ -2,80 +2,58 @@
 
 # Deployment
 
-DropItX API is a FastAPI service deployed to **Render** from the [`render.yaml`](../render.yaml) blueprint. It has no local database or filesystem state of its own — all data and files live in a Supabase project (Postgres + Storage); Firebase provides ID-token-based auth separately. A deploy is healthy only when the Render web service boots **and** its Supabase dependencies are reachable.
+DropItX API is a FastAPI service packaged as a container image ([`Dockerfile`](../Dockerfile)) and deployed to the **vps192 k3s cluster**. Production is served at `https://api.dropitx.site`. The service keeps no state of its own: data lives in Postgres, files live in an S3-compatible object store, and Firebase provides ID-token-based auth separately. A deploy is healthy only when the pod boots **and** its Postgres and object-store dependencies are reachable.
 
-This document is the canonical deployment reference. The older [`docs/deployment-guide.md`](deployment-guide.md) overlaps but is superseded here for blueprint-driven deploys. For environment variables, see [`docs/CONFIGURATION.md`](CONFIGURATION.md).
+This document is the canonical deployment reference. The older [`docs/deployment-guide.md`](deployment-guide.md) overlaps but is superseded here. For environment variables, see [`docs/CONFIGURATION.md`](CONFIGURATION.md).
 
 ## Deployment target
 
 | Target | Config | Runtime |
 |--------|--------|---------|
-| Render Web Service | [`render.yaml`](../render.yaml) (blueprint) | Python 3.12.0 |
+| vps192 k3s cluster | Kubernetes manifests in `phuongddx/vps192-k8s-config`, under `apps/dropitx-api/{base,vps192}` | Python 3.12 (`python:3.12-slim` image) |
 
-Render is the only deployment target defined in the repository. The service runs as a single `web` instance on Render's `free` plan; there is no container image, Dockerfile, `docker-compose.yml`, `vercel.json`, `fly.toml`, or `serverless.yml` in this repo.
+This repository does not hold the Kubernetes manifests. It builds the image; the `vps192-k8s-config` repository decides what runs. The `vps192` overlay there carries the `configmap.yaml`, the ingress and middleware manifests, and the `kustomization.yaml` that pins the image tag.
 
-<!-- VERIFY: the production Render service URL, dashboard service ID, and Render account/owner are not in the repository — confirm them in the Render dashboard. -->
+## Container image
 
-## render.yaml structure
+The [`Dockerfile`](../Dockerfile) is a multi-stage build: the builder stage installs [`requirements.txt`](../requirements.txt) with `uv`, and the runtime stage is `python:3.12-slim` with `libpq5`. The container listens on port `8000` and starts:
 
-The blueprint ([`render.yaml`](../render.yaml)) defines exactly one service:
-
-```yaml
-services:
-  - type: web
-    name: dropitx-api
-    runtime: python
-    plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.0"
-      - key: SUPABASE_URL
-        sync: false
-      - key: SUPABASE_ANON_KEY
-        sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
-      - key: ALLOWED_ORIGINS
-        sync: false
-      - key: FRONTEND_URL
-        sync: false
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-- **Runtime:** `python` (Render-managed Python environment).
-- **Plan:** `free`. Upgrade in the Render dashboard as load grows — this is a dashboard-only setting, not in the blueprint.
-- **Build command:** `pip install -r requirements.txt` (the pinned dependency list in [`requirements.txt`](../requirements.txt)). A reproducible lockfile (`uv.lock`) exists but is not used by the Render build.
-- **Start command:** `uvicorn app.main:app --host 0.0.0.0 --port $PORT`. `$PORT` is injected by Render. The ASGI app object is `app.main:app`.
-- **Python version:** `PYTHON_VERSION="3.12.0"`. `pyproject.toml` requires `>=3.12`, so 3.12.0 is the minimum compatible pin.
-- **`sync: false` env vars:** Render holds these as encrypted environment variables in its dashboard rather than deriving them from the blueprint. They must be set manually on first deploy (see [Environment setup](#environment-setup)).
+CI publishes the image as `ghcr.io/dropitx-io/dropitx-api:<sha>`, where `<sha>` is the commit that passed CI on `main`. Tags are immutable commit SHAs.
+
+For a local stack (Postgres and MinIO with the two buckets created), use [`docker-compose.yml`](../docker-compose.yml); see [`docs/GETTING-STARTED.md`](GETTING-STARTED.md).
 
 ## Database and storage prerequisites
 
-The Render service is stateless. Before the first deploy, the configured Supabase project must already contain the schema, RPCs, and storage buckets the app expects. If any are missing, `/health/deep` will report `degraded` and affected routes will fail at runtime.
+The service is stateless. Before the first deploy, the configured Postgres must contain the schema and RPCs the app expects, and the object store must contain the buckets. If any are missing, affected routes fail at runtime.
 
-<!-- VERIFY: the production Supabase project reference/ID and region are not in the repository — confirm against the deployed Supabase project dashboard. -->
+### Postgres
 
-### Supabase project setup
+The schema is [`infra/init/*.sql`](../infra/init/), applied in sorted order, once, to an empty Postgres. These scripts are not migrations: re-running them against an existing database is not supported. [`supabase/migrations/`](../supabase/migrations/) and [`migrations/`](../migrations/) are historical and must not be applied.
 
-1. Create a Supabase project with **Auth**, **Postgres**, and **Storage** enabled.
-2. Apply the database schema. The schema is [`infra/init/*.sql`](../infra/init/), applied in sorted order, once, to an empty Postgres. These scripts are not migrations: re-running them against an existing database is not supported. [`supabase/migrations/`](../supabase/migrations/) and [`migrations/`](../migrations/) are historical and must not be applied.
-3. For auth, create a Firebase project and note its **Project ID** from the Firebase console — set it as `FIREBASE_PROJECT_ID`. JWT verification in [`core/security.py`](../core/security.py) fetches and caches Google's public x509 signing certs for 1 hour (`_CERTS_TTL = 3600`).
+The app connects with `DATABASE_URL` (see [`core/config.py`](../core/config.py) and [`core/db.py`](../core/db.py)).
+
+### Auth
+
+Create a Firebase project and note its **Project ID** from the Firebase console — set it as `FIREBASE_PROJECT_ID`. JWT verification in [`core/security.py`](../core/security.py) fetches and caches Google's public x509 signing certs for 1 hour (`_CERTS_TTL = 3600`).
 
 ### Storage buckets
 
-Exactly **two** buckets must exist:
+The object store is reached through `S3_ENDPOINT`, `S3_ACCESS_KEY` and `S3_SECRET_KEY`. Exactly **two** buckets must exist:
 
 | Bucket | Public | Used by | Purpose |
 |--------|--------|---------|---------|
-| `html-files` | Yes | upload, publish, image, file-request, and thumbnail flows | Stores uploaded HTML/image content. Served at `<SUPABASE_URL>/storage/v1/object/public/html-files/<path>`. Thumbnails are stored as objects under `thumbnails/<base>_thumb.jpg` **inside this same bucket**, not as a separate bucket. |
+| `html-files` | Only `html-files/public/` is anonymously readable | upload, publish, image, file-request, and thumbnail flows | Stores uploaded HTML/image content. Public assets (editor images, thumbnails) are served at `{STORAGE_PUBLIC_URL}/html-files/public/<path>`. |
 | `shares` | No | v1 API documents and revisions | Private documents served only through the API. |
 
-`html-files` must be public for direct object URLs to resolve. `shares` stays private; contents are returned via the API rather than via public URLs.
+Share content is returned through the API, never through a storage URL.
 
 ### Required Postgres RPCs
 
-`infra/init/` must define the following RPCs, called from Python via the Supabase admin client:
+`infra/init/` must define the following RPCs, called through the database shim in [`core/db.py`](../core/db.py):
 
 - `check_rate_limit` — used by [`core/rate_limit.py`](../core/rate_limit.py) for all rate-limit checks.
 - `search_shares` — used by search endpoints.
@@ -84,110 +62,68 @@ Exactly **two** buckets must exist:
 
 If `check_rate_limit` or `search_shares` is missing, requests depending on them will fail.
 
-### Row-Level Security (RLS)
-
-Supabase enforces RLS. The app uses three client types (see [`core/supabase.py`](../core/supabase.py)):
-
-- `get_user_client(token)` — anon key + per-request JWT; **RLS applies** (user-scoped access).
-- `get_anon_client()` — anon key, no user context; RLS applies for public reads.
-- `get_admin_client()` — service-role key; **bypasses RLS**. Most routes use this.
-
-The schema in [`infra/init/`](../infra/init/) defines no RLS policies, so authorization is enforced in the application layer (explicit owner and role checks in the routes). Do not rely on the historical `supabase/migrations/` or `migrations/` policies.
-
 ## Environment setup
 
-All runtime configuration is environment-variable driven — there is no application config file. The full reference, defaults, and required/optional status live in [`docs/CONFIGURATION.md`](CONFIGURATION.md). For deployment, the variables declared in `render.yaml` are the ones Render manages.
+All runtime configuration is environment-variable driven — there is no application config file. The full reference, defaults, and required/optional status live in [`docs/CONFIGURATION.md`](CONFIGURATION.md). In production the values are supplied by the Kubernetes ConfigMap and Secret defined in `vps192-k8s-config` (`apps/dropitx-api`); secret values are not stored in this repository.
 
-### Required for first deploy (set in Render dashboard)
-
-These three are **required at startup** — Pydantic `BaseSettings` in [`core/config.py`](../core/config.py) raises `ValidationError` if any is missing, and the app will not boot:
-
-| Variable | Notes |
-|----------|-------|
-| `SUPABASE_URL` | `https://<project>.supabase.co` |
-| `SUPABASE_ANON_KEY` | Supabase anon/public key. |
-| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key (bypasses RLS). Treat as a production secret. |
-
-### Set alongside the required vars
-
-| Variable | Notes |
-|----------|-------|
-| `ALLOWED_ORIGINS` | Comma-separated CORS origins. Default `http://localhost:3000` is local-dev only; production must list the real frontend origins. `*` disables credentials and allows all origins. |
-| `FRONTEND_URL` | Frontend base URL used to build `/s/`, `/g/`, `/r/`, and `/invite/` links. Default `http://localhost:3000` is local-dev only. |
-
-### Optional (have safe defaults)
+The settings declared in [`core/config.py`](../core/config.py) are:
 
 | Variable | Default | Notes |
 |----------|---------|-------|
-| `PYTHON_VERSION` | `3.12.0` | Pinned in `render.yaml`. |
-| `ENV` | `production` | Controls log format. `production` → JSON lines (recommended for Render). |
-| `LOG_LEVEL` | `INFO` | Root log level. |
-| `PORT` | Render-injected | Bound via `--port $PORT`. |
+| `FIREBASE_PROJECT_ID` | — (empty) | Firebase project ID used to verify ID tokens. Required for authenticated routes to work. |
+| `DATABASE_URL` | local-dev Postgres URL | Production must point at the production Postgres. |
+| `S3_ENDPOINT` | `http://localhost:9000` | S3-compatible object store endpoint. |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | local-dev values | Object store credentials. Treat as production secrets. |
+| `STORAGE_PUBLIC_URL` | `http://localhost:9000` | Browser-facing base URL of the object store, used to build public asset URLs. |
+| `ALLOWED_ORIGINS` | `http://localhost:3000` | Comma-separated CORS origins. The default is local-dev only; production must list the real frontend origins. `*` disables credentials and allows all origins. |
+| `FRONTEND_URL` | `http://localhost:3000` | Frontend base URL used to build `/s/`, `/g/`, `/r/`, and `/invite/` links. The default is local-dev only. |
 
-<!-- VERIFY: production values for SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, ALLOWED_ORIGINS, and FRONTEND_URL are stored only in the Render dashboard as encrypted env vars (`sync: false`). Verify them there before/at deploy. -->
+Every default above is a local-development value, so a production pod that leaves one unset silently points at `localhost`.
 
 ## Build pipeline and deploy process
 
-Render drives both build and deploy. There is no GitHub Actions workflow or other CI/CD pipeline in this repository that performs deploys.
+Deploys are driven by [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml), triggered after the `CI` workflow ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) passes on a push to `main` (or started manually with `workflow_dispatch`).
 
-### First deploy (Blueprint)
+1. **Build.** The workflow builds the image and pushes `ghcr.io/dropitx-io/dropitx-api:<sha>`.
+2. **Promote.** It opens a promotion pull request in `phuongddx/vps192-k8s-config` that bumps `newTag` for this image in `apps/dropitx-api/vps192/kustomization.yaml`.
+3. **Validate.** That repository's `validate` run checks the pull request. When it passes, the workflow posts a "merge to deploy" message to Slack.
+4. **Merge.** A human merges the promotion PR. This is the approval gate. Merging redeploys every vps192 service, not only this one.
+5. **Apply.** `vps192-k8s-config`'s own deploy workflow applies the manifests and posts the rollout result to Slack.
 
-1. Push the repository to GitHub.
-2. In Render, go to **New +** → **Blueprint**, select the repo, and let Render detect [`render.yaml`](../render.yaml).
-3. Fill in the five `sync: false` environment variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS`, `FRONTEND_URL`) in the Render dashboard.
-4. Create the service. Render runs `pip install -r requirements.txt`, then starts `uvicorn app.main:app --host 0.0.0.0 --port $PORT`.
-
-### Subsequent deploys (auto-deploy)
-
-Render auto-deploys on `git push` to the tracked branch (main by default). Each push triggers a fresh build and a rolling restart. A manual redeploy is available from the service's **Deployments** tab in the Render dashboard.
-
-<!-- VERIFY: the connected branch, deploy-hook URL, and any PR-previews setting are Render dashboard configuration, not in the repository. -->
+Docs-only pushes to `main` skip CI and therefore skip the deploy.
 
 ## Health check endpoints
 
-Use these after every deploy to confirm the service and its Supabase dependency are healthy (defined in [`app/main.py`](../app/main.py)):
+Use this after every deploy to confirm the service is up (defined in [`app/main.py`](../app/main.py)):
 
 ```bash
-# Liveness — always 200 if the process is alive. Does not touch Supabase.
-curl https://<render-service-url>/health
-# {"status": "ok", "service": "dropitx-api"}
-
-# Readiness — pings the Supabase `shares` table via the admin client and reports latency.
-curl https://<render-service-url>/health/deep
-# {"status": "ok", "checks": {"database": {"status": "ok", "latency_ms": 123.4}}, "service": "dropitx-api"}
+# Liveness — 200 if the process is alive.
+curl https://api.dropitx.site/health
+# {"status": "ok"}
 ```
-
-`/health/deep` returns `status: "degraded"` if the database query fails; treat that as a failed deploy even if the process is up. Point Render's health check at `/health` for liveness, and gate release sign-off on `/health/deep` returning `ok`.
-
-<!-- VERIFY: the actual `<render-service-url>` (e.g. `https://dropitx-api.onrender.com` or a custom domain) is not in the repository — confirm in the Render dashboard. -->
 
 Interactive API docs (Swagger UI at `/docs`, ReDoc at `/redoc`) are available on the deployed service for verification.
 
 ## Rollback procedure
 
-1. In the Render dashboard, open the service → **Deployments** tab.
-2. Select the most recent known-good deployment and click **Rollback**. Render redeploys that commit's build and restarts the service.
+1. Find the image tag the service ran before the bad deploy (the previous `newTag` in the history of `apps/dropitx-api/vps192/kustomization.yaml` in `vps192-k8s-config`).
+2. Open a promotion PR in `vps192-k8s-config` that points `newTag` back at that tag, and merge it. `vps192-k8s-config`'s deploy workflow applies it and reports the rollout.
 3. Rollback restores the previous image. The schema in `infra/init/` is applied only once, to a new empty database, so a deploy never changes an existing schema and there is nothing to revert in the database.
 4. To restore data, restore a database backup into a database; `infra/init/*.sql` cannot be re-run against an existing one.
 
-Because the service is stateless, Render rollback is the primary mechanism; restoring data is a separate, manual database-backup restore.
+Because the service is stateless, redeploying the previous image is the primary mechanism; restoring data is a separate, manual database-backup restore.
 
 ## Monitoring
 
-- **Logs:** Render's **Logs** tab streams stdout/stderr in real time. In production (`ENV=production`, the default), logs are emitted as one JSON object per line by [`core/logging_config.py`](../core/logging_config.py), including `timestamp`, `level`, `logger`, `message`, `request_id`, and request-scoped extras (`status_code`, `method`, `path`, `duration_ms`, `client_ip`). Set `ENV=development` only if you want human-readable terminal logs.
-- **Request tracing:** `RequestTrackingMiddleware` ([`core/middleware.py`](../core/middleware.py)) attaches a `request_id` to every request and propagates it into log records for correlation.
-- **No external monitoring SDK is bundled.** The dependency list in [`requirements.txt`](../requirements.txt) contains no Sentry, Datadog, New Relic, or OpenTelemetry client. Observability currently relies on Render logs plus the `/health/deep` probe.
-
-<!-- VERIFY: any external log forwarding, uptime monitor, or alerting integration is configured outside the repository (Render dashboard or third-party). Confirm there before relying on it. -->
+- **Logs:** the container writes to stdout/stderr. Read them with `kubectl logs` on this service's pod in the vps192 cluster.
+- **Deploy results:** the rollout result of each deploy is posted to Slack by `vps192-k8s-config`'s deploy workflow, and CI or promotion failures are posted by this repository's deploy workflow.
+- **No external monitoring SDK is bundled.** The dependency list in [`requirements.txt`](../requirements.txt) contains no Sentry, Datadog, New Relic, or OpenTelemetry client.
 
 ## Production checklist
 
-- [ ] Supabase project created; Auth, Postgres, and Storage enabled.
-- [ ] Schema applied: `infra/init/*.sql` run in sorted order against an empty Postgres, including the required RPCs.
-- [ ] Storage buckets exist: `html-files` (public), `shares` (private).
-- [ ] Render Blueprint created from `render.yaml`.
-- [ ] Five `sync: false` env vars set in Render dashboard (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS`, `FRONTEND_URL`).
-- [ ] `PYTHON_VERSION=3.12.0` confirmed.
-- [ ] `/health` returns `200` and `/health/deep` returns `status: "ok"` against production Supabase.
+- [ ] Postgres reachable from the cluster; schema applied: `infra/init/*.sql` run in sorted order against an empty Postgres, including the required RPCs.
+- [ ] Object-store buckets exist: `html-files` (with `html-files/public/` anonymously readable) and `shares` (private).
+- [ ] `FIREBASE_PROJECT_ID`, `DATABASE_URL`, the `S3_*` settings and `STORAGE_PUBLIC_URL` are set in the vps192 ConfigMap/Secret.
 - [ ] Production `ALLOWED_ORIGINS` and `FRONTEND_URL` point at the real frontend (not `localhost`).
-- [ ] Logs streaming to Render's Logs tab in JSON format.
+- [ ] The promotion PR passed `validate` and was merged; the Slack rollout result reports success.
+- [ ] `https://api.dropitx.site/health` returns `200`.

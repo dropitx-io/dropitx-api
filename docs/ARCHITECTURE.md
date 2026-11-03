@@ -5,9 +5,9 @@
 
 DropItX API is a FastAPI backend (Python ≥ 3.12, app version `0.3.0`) that powers a file-and-text sharing product with team collaboration. It is a thin, stateless service layer over **Supabase**: the Postgres database and object storage all live in Supabase, while authentication uses Firebase ID tokens verified against Google's public certs, and this API enforces business rules, composes upload/download flows, and exposes a clean REST surface.
 
-Primary inputs are HTTP requests from three consumers — the Next.js web frontend (`dropitx/`), the Python CLI + MCP server (`dropitx-cli/`), and a bundled Node.js CLI (`cli/`). Primary outputs are JSON share metadata, streamed file content, and team-management responses. The service authenticates via two mechanisms (Firebase ID tokens and prefixed API keys), writes content to two Supabase Storage buckets (`html-files`, `shares`), and delegates persistence and atomic counters to Postgres RPC functions. It is architected in a **layered, router-aggregated style**: a single `FastAPI` app mounts four versioned/scope routers, each route handler depends on injected auth dependencies and calls into shared `core/` infrastructure.
+Primary inputs are HTTP requests from two consumers — the Next.js web frontend (`dropitx/`) and the CLI + MCP server (`dropitx-cli/`, a separate repository). Primary outputs are JSON share metadata, streamed file content, and team-management responses. The service authenticates via two mechanisms (Firebase ID tokens and prefixed API keys), writes content to two Supabase Storage buckets (`html-files`, `shares`), and delegates persistence and atomic counters to Postgres RPC functions. It is architected in a **layered, router-aggregated style**: a single `FastAPI` app mounts four versioned/scope routers, each route handler depends on injected auth dependencies and calls into shared `core/` infrastructure.
 
-The process is stateless and horizontally scalable; it is deployed to Render via `render.yaml` and started with `uvicorn app.main:app`. A single async background task runs a periodic cleanup loop for expired content.
+The process is stateless and horizontally scalable; it runs as a container image on the vps192 k3s cluster (`https://api.dropitx.site`) and is started with `uvicorn app.main:app`. A single async background task runs a periodic cleanup loop for expired content.
 
 ## Component diagram
 
@@ -15,7 +15,6 @@ The process is stateless and horizontally scalable; it is deployed to Render via
 graph TD
     FE["Next.js frontend<br/>(dropitx/)"]
     PYCLI["Python CLI / MCP<br/>(dropitx-cli/)"]
-    NCLI["Node CLI<br/>(cli/)"]
 
     subgraph API["DropItX API (FastAPI process)"]
         MW["Middleware<br/>RequestTracking · SecurityHeaders · CORS"]
@@ -41,7 +40,7 @@ graph TD
         ST["Storage buckets<br/>html-files · shares"]
     end
 
-    FE & PYCLI & NCLI --> MW
+    FE & PYCLI --> MW
     MW --> DEP
     DEP --> V1 & DASH & PUB & INT
     V1 & DASH & PUB & INT --> SB
@@ -111,12 +110,11 @@ dropitx-api/
 ├── migrations/             Per-feature SQL migration fragments (encryption cols, comments, revisions, domains…)
 ├── supabase/               Local Supabase project config + base SQL migrations (config.toml, base schema)
 ├── tests/                  pytest suite (asyncio_mode=auto) — endpoints, encryption, domains, file requests, preview
-├── cli/                    Bundled Node.js CLI (npm package "dropitx-cli", bin `dropitx`) — shares files from terminal
 └── docs/                   Project documentation
 ```
 
-**Why this layout:** `app/` is split by **auth surface** rather than by domain — `v1/` (API-key), `dashboard/` (required JWT), `internal/` (upload/auth flows), `public/` (no/optional auth). Each subpackage owns an `APIRouter` and aggregates into `main.py`, keeping route registration centralized while letting each surface evolve independently. `core/` holds everything HTTP-agnostic so it can be unit-tested without spinning up the app. `models/` is a flat DTO package imported across surfaces. The two SQL directories differ in provenance: `migrations/` holds incremental per-feature scripts tracked alongside code, while `supabase/` carries the base schema and local-Dev config for the Supabase CLI. The Node `cli/` ships alongside the Python service because the terminal client consumes this API directly.
+**Why this layout:** `app/` is split by **auth surface** rather than by domain — `v1/` (API-key), `dashboard/` (required JWT), `internal/` (upload/auth flows), `public/` (no/optional auth). Each subpackage owns an `APIRouter` and aggregates into `main.py`, keeping route registration centralized while letting each surface evolve independently. `core/` holds everything HTTP-agnostic so it can be unit-tested without spinning up the app. `models/` is a flat DTO package imported across surfaces. The two SQL directories differ in provenance: `migrations/` holds incremental per-feature scripts tracked alongside code, while `supabase/` carries the base schema and local-Dev config for the Supabase CLI.
 
 ## Consumers and deployment context
 
-The API is consumed by the `dropitx/` Next.js frontend (dashboard and editor flows via JWT), the `dropitx-cli/` Python CLI + MCP server (API-key document flows under `/api/v1`), and the bundled Node `cli/` (`cli/bin/dropitx.js`, published as the npm `dropitx-cli` package). It runs on Render (`render.yaml`: `python` runtime, `pip install -r requirements.txt` build, `uvicorn app.main:app --host 0.0.0.0 --port $PORT` start, Python 3.12.0). Liveness is exposed at `GET /health` and a DB-latency-aware deep probe at `GET /health/deep` (which pings the `shares` table through the admin client). <!-- VERIFY: production Render service URL and Supabase project URL are not present in the repo and must be sourced from Render/Supabase dashboards. -->
+The API is consumed by the `dropitx/` Next.js frontend (dashboard and editor flows via JWT) and the `dropitx-cli/` CLI + MCP server, a separate repository (API-key document flows under `/api/v1`). It runs on the vps192 k3s cluster at `https://api.dropitx.site`, built from the repository `Dockerfile` (`uvicorn app.main:app --host 0.0.0.0 --port 8000`, Python 3.12) and rolled out through promotion PRs in `phuongddx/vps192-k8s-config` (see [DEPLOYMENT.md](DEPLOYMENT.md)). Liveness is exposed at `GET /health`.

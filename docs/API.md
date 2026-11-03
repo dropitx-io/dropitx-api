@@ -1,7 +1,7 @@
 <!-- generated-by: gsd-doc-writer -->
 # DropItX API — API Reference
 
-This is the canonical HTTP contract for the DropItX FastAPI backend (`app/main.py`, app version `0.3.0`). It is consumed by the Next.js frontend (`dropitx/`), the Python CLI + MCP server (`dropitx-cli/`), and the bundled Node CLI. Every endpoint listed here is verified against the router source under `app/v1/`, `app/dashboard/`, `app/public/`, and `app/internal/`; nothing is inferred or invented.
+This is the canonical HTTP contract for the DropItX FastAPI backend (`app/main.py`, app version `0.3.0`). It is consumed by the Next.js frontend (`dropitx/`), and the CLI + MCP server (`dropitx-cli/`, a separate repository). Every endpoint listed here is verified against the router source under `app/v1/`, `app/dashboard/`, `app/public/`, and `app/internal/`; nothing is inferred or invented.
 
 The live OpenAPI spec is also served by the app at `/docs` (Swagger UI) and `/redoc` (ReDoc).
 
@@ -36,7 +36,7 @@ Per-endpoint auth is labelled in the tables below as:
 - **API key optional** — header-accepted key (e.g. `X-API-Key`) that links the upload to a user when present.
 - **Owner token** — owner JWT **or** a `delete_token` in the request body (share self-service delete/burn/set-password links).
 
-<!-- VERIFY: Production base URL is https://api.dropitx.com (referenced in cli_upload docstrings); confirm against the deployed Render service before relying on it. -->
+Production base URL: `https://api.dropitx.site`.
 
 ## Error responses
 
@@ -364,8 +364,6 @@ Source: `app/internal/cli_upload.py` (router prefix `/cli`, mounted under `/api`
 | POST | `/api/cli/upload` | Upload a file or raw body. Form/query: `file?`, `password?`, `expires?`, `burn?`, `slug?`, `X-API-Key?`. |
 | POST | `/api/cli/upload/text` | Upload text directly (for pipes). Form: `content` (required), `filename?`, `password?`, `expires?`, `burn?`, `slug?`, `X-API-Key?`. |
 
-<!-- VERIFY: CLI upload docstrings reference https://api.dropitx.com as the example host — confirm against the production deployment before publishing client examples. -->
-
 ---
 
 ## Representative request/response shapes
@@ -373,7 +371,7 @@ Source: `app/internal/cli_upload.py` (router prefix `/cli`, mounted under `/api`
 **Create a document (API key):**
 
 ```bash
-curl -X POST https://api.dropitx.com/api/v1/documents \
+curl -X POST https://api.dropitx.site/api/v1/documents \
   -H "Authorization: Bearer shk_xxx" \
   -H "Content-Type: application/json" \
   -d '{"content": "# hello", "filename": "readme.md"}'

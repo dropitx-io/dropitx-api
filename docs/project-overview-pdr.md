@@ -131,7 +131,7 @@ Sharing HTML/Markdown content online requires either complex CMS setups or gener
 ### Scalability
 - **Stateless**: No server-side sessions
 - **Externalized Storage**: Supabase Postgres + Storage
-- **Container Deployment**: Render with auto-scaling
+- **Container Deployment**: vps192 k3s cluster, rolled out via promotion PRs in `phuongddx/vps192-k8s-config`
 - **Async I/O**: asyncio.to_thread for Supabase sync client
 - **Rate Limiting via RPC**: Distributed, Postgres-backed
 
@@ -143,7 +143,7 @@ Sharing HTML/Markdown content online requires either complex CMS setups or gener
 
 ## Deployment
 
-- **Platform**: Render (container, auto-scaling)
+- **Platform**: vps192 k3s cluster (container image, `https://api.dropitx.site`)
 - **Database**: Supabase Postgres
 - **Storage**: Supabase Storage (two buckets)
 - **Auth**: Firebase (JWT issuance, Google-certs verification)
@@ -201,7 +201,6 @@ Sharing HTML/Markdown content online requires either complex CMS setups or gener
 | Sync Supabase client | Threads needed for async | asyncio.to_thread, scales OK at current load |
 | No connection pooling | Fresh admin client per call | Acceptable latency (<200ms typical) |
 | Thin test coverage | Regression risk | Manual QA, CI/CD testing before release |
-| Dual CLI implementation | Confusion for users | Document which is canonical (TBD) |
 | Inline Pydantic models | Code duplication | Extract shared DTOs as patterns emerge |
 
 ## Acceptance Criteria (For v0.3.0)
@@ -214,7 +213,7 @@ Sharing HTML/Markdown content online requires either complex CMS setups or gener
 - [x] Discovery (search, explore, profiles)
 - [x] File management (multi-upload, preview, requests)
 - [x] Analytics (tracking, QR codes, language)
-- [x] Deployment (Render blueprint, health checks)
+- [x] Deployment (container image, vps192 k3s promotion flow, health check)
 - [x] OpenAPI docs (`/docs`, `/redoc`)
 - [x] Structured error responses (consistent JSON envelope with error codes)
 - [ ] Test coverage > 80% (priority for next sprint)

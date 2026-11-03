@@ -156,7 +156,7 @@ External (auth only):
 
 **ASGI app:**
 - Location: `app/main.py:78` (`app = FastAPI(...)`).
-- Triggers: uvicorn (`uvicorn app.main:app --reload`, `Dockerfile` CMD, `render.yaml` start command, `k8s/api.yaml`).
+- Triggers: uvicorn (`uvicorn app.main:app --reload`, `Dockerfile` CMD, the Kubernetes Deployment in `phuongddx/vps192-k8s-config`).
 - Responsibilities: Mounts routers under `/api/v1`, `/api/dashboard`, `/api` (public + internal + invite actions), `/api/auth`; adds CORS, request tracking, security headers; exposes `/health` and `/docs`.
 
 **Local infra bootstrap:**

@@ -37,15 +37,13 @@ dropitx-api/
 │   └── migrations/           # Original cloud schema history (base + feature migrations)
 ├── k8s/                      # Kubernetes manifests (namespace/postgres/minio/api/migrate-job) + auth-stub.sql
 ├── tests/                    # pytest suites (endpoint wiring + integration)
-├── cli/                      # Node.js CLI (separate npm package — not part of Python build)
 ├── docs/                     # Project docs (architecture, roadmap, deployment, etc.)
 ├── plans/                    # Local planning artifacts and reports
 ├── .planning/                # GSD workspace (codebase maps, graphs)
 ├── docker-compose.yml        # Local Postgres + MinIO + createbuckets service
 ├── Dockerfile                # Container image for API
-├── render.yaml               # Render blueprint (legacy cloud-Supabase path)
 ├── pyproject.toml            # Python project + tool config
-├── requirements.txt          # Pip deps (Render build)
+├── requirements.txt          # Pip deps (Dockerfile and CI)
 ├── uv.lock                   # Reproducible install lockfile
 ├── .env.example              # Supabase-cloud env baseline
 └── .env.local.example        # Local Postgres+MinIO env baseline
@@ -110,9 +108,6 @@ dropitx-api/
 - Purpose: Endpoint wiring over ASGI transport (`test_all_endpoints.py`) plus integration tests that need a live local Postgres/MinIO.
 - Key files: `tests/test_all_endpoints.py`, `tests/test_file_requests.py`.
 
-**`cli/` — Node.js CLI (separate subproject):**
-- Purpose: `dropitx` npm package; not part of the Python build.
-
 **`docs/`, `plans/`, `.planning/`:**
 - Purpose: Project documentation, ad-hoc plans/reports, and the GSD workspace (codebase maps under `.planning/codebase/`).
 
@@ -122,7 +117,6 @@ dropitx-api/
 - `app/main.py:78`: FastAPI app instantiation and router mounting.
 - `app/main.py:115`: `/health` endpoint.
 - `Dockerfile`: container entrypoint.
-- `render.yaml`: Render start command.
 - `k8s/api.yaml`: Kubernetes Deployment for the API.
 
 **Configuration:**

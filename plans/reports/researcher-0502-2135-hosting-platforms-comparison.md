@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-02
 **Scope:** 8 alternative platforms for FastAPI (Python 3.12+, uvicorn) hosting
-**Current:** Render free tier (cold starts, limited compute)
+**Current at the time:** a free-tier PaaS (cold starts, limited compute)
 
 ---
 
@@ -10,7 +10,7 @@
 
 **Ranked recommendation:** Koyeb (free tier) > Railway ($5/mo) > Hetzner + Coolify ($3-5/mo, self-managed) > Fly.io ($2-6/mo) > Northflank (free sandbox) > DigitalOcean App Platform ($5/mo) > Vercel (ELIMINATED).
 
-For immediate zero-cost migration from Render: **Koyeb**. For predictable paid production: **Railway Hobby**. For maximum control at lowest cost: **Hetzner CX23 + Coolify**.
+For immediate zero-cost migration from the free-tier PaaS: **Koyeb**. For predictable paid production: **Railway Hobby**. For maximum control at lowest cost: **Hetzner CX23 + Coolify**.
 
 ---
 
@@ -135,7 +135,7 @@ DropItX API requirements that constrain platform choice:
 ### Tier 1: Migrate Immediately (Zero Cost)
 
 **1. Koyeb Free Tier**
-- Move from Render free to Koyeb free. Same Dockerfile, better compute, no cold starts.
+- Move from the free-tier PaaS to Koyeb free. Same Dockerfile, better compute, no cold starts.
 - Risk: 0.1 vCPU may feel slow under concurrent load. Monitor and upgrade to paid if needed.
 - Migration effort: ~1 hour (create Koyeb app, point env vars, update custom domain).
 
@@ -143,7 +143,7 @@ DropItX API requirements that constrain platform choice:
 
 **2. Railway Hobby**
 - Best DX of any paid option. Git push deploys, generous $5 included usage, zero ops.
-- Migration effort: ~30 min. Almost identical to Render workflow.
+- Migration effort: ~30 min. Almost identical to the free-tier PaaS workflow.
 
 **3. Hetzner CX23 + Coolify**
 - Best raw value: 2 vCPU, 4GB RAM for EUR 3.49/mo. But you manage the server.
@@ -163,7 +163,7 @@ DropItX API requirements that constrain platform choice:
 
 ## Migration Path (Recommended)
 
-1. **Now:** Deploy to Koyeb free tier. Validate all endpoints work. Keep Render as fallback.
+1. **Now:** Deploy to Koyeb free tier. Validate all endpoints work. Keep the existing host as fallback.
 2. **If Koyeb free is sufficient:** Done. Monitor for performance limits.
 3. **If needing more compute:** Upgrade Koyeb to paid ($5/mo) OR migrate to Railway ($5/mo).
 4. **If wanting maximum control:** Set up Hetzner + Coolify for EUR 3.49/mo.

@@ -79,18 +79,17 @@
 ## CI/CD & Deployment
 
 **Hosting:**
-- Render (`render.yaml`) — `python` web service, free plan, port from `$PORT`
-- Kubernetes (Docker Swarm / k8s cluster) — newer path; manifests in `k8s/`
+- vps192 k3s cluster — `https://api.dropitx.site`; manifests in `phuongddx/vps192-k8s-config` under `apps/dropitx-api/{base,vps192}`
 
 **CI Pipeline:**
-- None detected in-repo (no `.github/workflows/`, no GitLab CI). Deployments are manual via `docker compose` / `kubectl` / `k8s/create-secret.sh`
+- `.github/workflows/ci.yml` runs the tests; after it passes on `main`, `.github/workflows/deploy.yml` builds `ghcr.io/dropitx-io/dropitx-api:<sha>` and opens a promotion PR in `phuongddx/vps192-k8s-config`; a human merges it and that repo's deploy workflow applies the manifests
 
 **Image build:**
 - `Dockerfile` multi-stage → tagged `dropitx-api:local`, `imagePullPolicy: Never` in k8s
 
 ## Environment Configuration
 
-**Required env vars** (see `core/config.py`, `k8s/create-secret.sh`, `render.yaml`):
+**Required env vars** (see `core/config.py`, `k8s/create-secret.sh`):
 - `FIREBASE_PROJECT_ID` — Firebase Auth verification (required)
 - `DATABASE_URL` — local Postgres DSN
 - `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` — MinIO/S3
@@ -104,7 +103,7 @@
 **Secrets location:**
 - Local: `.env` (gitignored; not read by this analysis)
 - k8s: `dropitx-env` Secret in namespace `dropitx`, materialized by `k8s/create-secret.sh` from a sourced `.env`; DB/S3 overridden to in-cluster service addresses
-- Render: env vars configured in `render.yaml` (marked `sync: false` → managed in dashboard)
+- vps192: ConfigMap and Secret in `phuongddx/vps192-k8s-config` (`apps/dropitx-api`)
 
 ## Webhooks & Callbacks
 

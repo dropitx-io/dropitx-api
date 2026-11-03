@@ -15,7 +15,7 @@ Extracted from the 2 SPEC-classified documents: `docs/API.md` and `docs/2026-08-
 - source: docs/API.md
 - type: api-contract
 - content: Two credential mechanisms via `Authorization: Bearer <token>`. JWT (Supabase Auth) — `get_current_user` (`app/dependencies.py:41`) verifies Supabase JWT against JWKS, returns `User(id, email)`; `get_optional_user` (`app/dependencies.py:58`) returns `User | None` without raising. API Key — `get_api_key` (`app/dependencies.py:70`) accepts `shk_`/`sht_` prefixed keys, looks up SHA-256 hash in `api_keys` table, rejects revoked keys and team keys whose owner is no longer a member, returns `ApiKeyAuth(user_id, key_id, team_id)`; raw key returned once at creation, only hash stored; `last_used_at` updated fire-and-forget. Auth labels used per endpoint: Public, JWT, JWT optional, API key, API key optional, Owner token (owner JWT or `delete_token` in body).
-- note: <!-- VERIFY --> in source: production base URL referenced as `https://api.dropitx.com` in CLI docstrings — confirm against deployed Render service.
+- note: <!-- VERIFY --> in source: CLI docstrings reference `https://api.dropitx.com` as an example host; the production base URL is `https://api.dropitx.site`.
 
 ### Error response envelope
 - source: docs/API.md

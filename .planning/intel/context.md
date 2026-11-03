@@ -4,10 +4,10 @@ Running notes from the 14 DOC-classified documents, keyed by topic. Verbatim/par
 
 ## Architecture (Supabase-JWT era)
 - source: docs/ARCHITECTURE.md
-- DropItX API is a FastAPI backend (Python ≥3.12, app v0.3.0), a thin stateless service layer over Supabase (Auth, Postgres, Storage). Layered, router-aggregated style: single FastAPI app mounts four versioned/scope routers (`v1/` API-key, `dashboard/` JWT, `public/` public/optional-JWT, `internal/` optional/required JWT). Consumers: Next.js frontend (`dropitx/`), Python CLI/MCP (`dropitx-cli/`), bundled Node CLI (`cli/`). Deployed to Render via `render.yaml`, `uvicorn app.main:app`. Single async background task runs periodic cleanup for expired content.
+- DropItX API is a FastAPI backend (Python ≥3.12, app v0.3.0), a thin stateless service layer over Supabase (Auth, Postgres, Storage). Layered, router-aggregated style: single FastAPI app mounts four versioned/scope routers (`v1/` API-key, `dashboard/` JWT, `public/` public/optional-JWT, `internal/` optional/required JWT). Consumers: Next.js frontend (`dropitx/`), Python CLI/MCP (`dropitx-cli/`). Deployed as a container image on the vps192 k3s cluster (`https://api.dropitx.site`), `uvicorn app.main:app`. Single async background task runs periodic cleanup for expired content.
 - Key abstractions: `Settings` (`core/config.py`); `get_admin_client()`/`get_user_client(token)`/`get_anon_client()` (`core/supabase.py`); `verify_supabase_jwt(token)` (`core/security.py`, RS256/ES256 against cached JWKS, 10-min TTL); `generate_api_key`/`hash_api_key`; `User`/`ApiKeyAuth` dataclasses (`app/dependencies.py`); `check_*_rate_limit` (`core/rate_limit.py`); `ErrorResponse`/`RateLimitError`/`ShareNotFoundError`/`SharePasswordRequired` (`core/exceptions.py`); `RequestTrackingMiddleware`/`SecurityHeadersMiddleware`; `require_team_member` (`app/dashboard/team_helpers.py`); `run_cleanup_loop()` (5-min interval — deletes expired shares, trims revisions >50/share, deactivates expired file requests).
 - Directory layout split by **auth surface**, not domain: `app/v1`, `app/dashboard`, `app/public`, `app/internal`, `app/services`; `core/` is HTTP-agnostic; `models/` flat DTO package; two SQL dirs (`migrations/` incremental, `supabase/` base schema + CLI config).
-- `<!-- VERIFY -->` marker in source: production Render service URL and Supabase project URL are not in the repo.
+- `<!-- VERIFY -->` marker in source: the Supabase project URL is not in the repo.
 
 ## System architecture (Supabase-JWT era, diagrammatic)
 - source: docs/system-architecture.md
@@ -26,7 +26,7 @@ Running notes from the 14 DOC-classified documents, keyed by topic. Verbatim/par
 
 ## Configuration (Supabase-JWT era)
 - source: docs/CONFIGURATION.md
-- All runtime config via env vars, Pydantic `BaseSettings` in `core/config.py`; no YAML/TOML app config. Required (startup fails if missing): `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Optional (defaults): `ALLOWED_ORIGINS` (`http://localhost:3000`), `FRONTEND_URL` (`http://localhost:3000`), `ENV` (`production`), `LOG_LEVEL` (`INFO`). Render-injected: `PYTHON_VERSION` (`3.12.0`), `PORT`.
+- All runtime config via env vars, Pydantic `BaseSettings` in `core/config.py`; no YAML/TOML app config. Required (startup fails if missing): `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Optional (defaults): `ALLOWED_ORIGINS` (`http://localhost:3000`), `FRONTEND_URL` (`http://localhost:3000`), `ENV` (`production`), `LOG_LEVEL` (`INFO`).
 - CORS: `ALLOWED_ORIGINS` comma-separated; `*` disables credentials and allows all origins; otherwise `allow_credentials=True`.
 - Logging: `ENV=production` → JSON lines; else human-readable. Noisy loggers (`httpx`, `httpcore`, `uvicorn.access`, `uvicorn.error`) forced to `WARNING`.
 - JWT verification (`core/security.py::verify_supabase_jwt`) fetches/caches JWKS from `<SUPABASE_URL>/auth/v1/.well-known/jwks.json` for 10 minutes; supports RS256 and ES256; no env var controls this directly (derived from `SUPABASE_URL`).
@@ -34,25 +34,25 @@ Running notes from the 14 DOC-classified documents, keyed by topic. Verbatim/par
 - "Required Supabase resources" section lists exactly **two** storage buckets: `html-files`, `shares` (no `thumbnails` bucket mentioned) — see conflicts report re: bucket-count discrepancy.
 - `<!-- VERIFY -->` markers: production values for `SUPABASE_URL`/`ALLOWED_ORIGINS`/`FRONTEND_URL`, and bucket/RPC/RLS details, live only in the Supabase dashboard, not the repo.
 
-## Deployment — canonical Render reference (Supabase-JWT era)
+## Deployment — canonical deployment reference (Supabase-JWT era)
 - source: docs/DEPLOYMENT.md
 - Self-declared as "the canonical deployment reference," stating `docs/deployment-guide.md` "overlaps but is superseded here for blueprint-driven deploys." See conflicts report (INFO, auto-resolved by explicit in-doc statement).
-- Render is the *only* deployment target defined in the repo at time of writing — no Dockerfile/docker-compose/vercel.json/fly.toml/serverless.yml referenced by this doc. (Note: this workspace now also has `k8s/` manifests and a `docker-compose.yml`-based local stack, per the top-level project CLAUDE.md — this DOC predates or does not reflect that.)
-- `render.yaml` defines exactly one `web` service, `python` runtime, `plan: free`, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, `PYTHON_VERSION=3.12.0`, five `sync: false` env vars (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS`, `FRONTEND_URL`).
+- The deployment target is the vps192 k3s cluster (`https://api.dropitx.site`). The repo `Dockerfile` builds the container image (`ghcr.io/dropitx-io/dropitx-api:<sha>`); manifests live in `phuongddx/vps192-k8s-config` under `apps/dropitx-api/{base,vps192}`, not in this repo. A `docker-compose.yml`-based local stack also exists.
+- Deploy flow: CI passes on `main` → `.github/workflows/deploy.yml` builds the image → opens a promotion PR in `vps192-k8s-config` bumping `apps/dropitx-api/vps192/kustomization.yaml` → that repo's validate run → a human merges → that repo's deploy workflow applies manifests and posts the rollout result to Slack.
 - Storage prerequisites: "Exactly **two** buckets must exist": `html-files` (public) and `shares` (private, thumbnails stored as objects *inside* `html-files` under `thumbnails/<base>_thumb.jpg`, not a separate bucket). This directly conflicts with `deployment-guide.md`, `system-architecture.md`, and `codebase-summary.md`, which describe a separate third `thumbnails` bucket — see conflicts report.
 - Required Postgres RPCs: `check_rate_limit`, `search_shares`, `create_team_invite`, `accept_team_invite`, `decline_team_invite`, `change_team_member_role`, `remove_team_member`, `increment_share_views`.
 - RLS: three client types, `get_admin_client()` bypasses RLS (used by most routes); RLS policies defined across migration files.
 - Health checks: `/health` (liveness) and `/health/deep` (pings `shares` table, reports `status: "degraded"` on failure — treat as failed deploy even if process is up).
-- Rollback: Render dashboard rollback restores code; a bad deploy triggered by a Supabase migration is **not** undone by code rollback — schema must be reverted manually; `supabase db reset` deletes data (non-production only).
-- Monitoring: Render Logs tab, JSON lines in production via `core/logging_config.py`; no external monitoring SDK bundled (no Sentry/Datadog/New Relic/OpenTelemetry in `requirements.txt`).
+- Rollback: another promotion PR pointing at the previous image tag restores code; a bad deploy triggered by a Supabase migration is **not** undone by code rollback — schema must be reverted manually; `supabase db reset` deletes data (non-production only).
+- Monitoring: container stdout/stderr via `kubectl logs`, JSON lines in production via `core/logging_config.py`; no external monitoring SDK bundled (no Sentry/Datadog/New Relic/OpenTelemetry in `requirements.txt`).
 
 ## Deployment guide — step-by-step (Supabase-JWT era, older doc)
 - source: docs/deployment-guide.md
 - Prerequisites: Supabase project (Auth+Postgres+Storage), migrations applied, storage buckets `html-files`, `shares`, **`thumbnails`** (three buckets — conflicts with DEPLOYMENT.md's "exactly two"), Python 3.12+, Git repo.
 - Same required/optional env vars as CONFIGURATION.md/DEPLOYMENT.md.
 - Local dev steps: venv, `pip install -r requirements.txt`, `pip install -e ".[dev]"`, copy `.env.example`, `uvicorn app.main:app --reload --port 8000`.
-- Render deployment: Blueprint (recommended) or manual Web Service setup; same `render.yaml` shown as DEPLOYMENT.md.
-- Scaling table: current limits (50 MB/upload, same rate limits as elsewhere, ~10 DB connections / 1 GB storage on Supabase free tier) and an upgrade path table (free tier → Render standard + Supabase team → Render pro + Supabase enterprise + CDN at 10k+ req/min).
+- Deployment: the vps192 k3s promotion flow described in DEPLOYMENT.md.
+- Scaling table: current limits (50 MB/upload, same rate limits as elsewhere, ~10 DB connections / 1 GB storage on Supabase free tier).
 - Troubleshooting section: build failures, 502s, auth failures (401 causes: JWT signature mismatch, key not found, revoked), storage upload failures (bucket not found/permission denied/quota exceeded), rate-limit-not-working (missing RPC), search-returns-empty (missing RPC), CORS errors, high memory usage.
 
 ## Design guidelines
@@ -96,7 +96,7 @@ Running notes from the 14 DOC-classified documents, keyed by topic. Verbatim/par
 - source: docs/project-roadmap.md
 - Current status: Alpha v0.3.0, "all core features implemented and deployed," current focus is test coverage and reliability hardening.
 - Shipped phases 1–9 (Foundation, Core Sharing, Authentication, Team Collaboration, Content Features, Discovery & Analytics, File Requests, Programmatic API, Deployment) — all marked complete with itemized checklists.
-- Known gaps/tech debt: thin test coverage (~8 files, <30% estimated); basic error handling (no per-endpoint structured error codes); dual CLI situation (`dropitx-api/cli/` npm JS vs `dropitx-cli/` sibling Python repo — "decision needed: keep both or consolidate?"); no connection pooling for admin Supabase client; inline Pydantic models causing duplication; implicit route registration via side-effect import in `app/dashboard/team_invites.py`.
+- Known gaps/tech debt: thin test coverage (~8 files, <30% estimated); basic error handling (no per-endpoint structured error codes); no connection pooling for admin Supabase client; inline Pydantic models causing duplication; implicit route registration via side-effect import in `app/dashboard/team_invites.py`.
 - Next priorities: short term — test coverage, CI/CD pipeline, error documentation; medium term — structured request/response logging, Sentry/uptime monitoring, performance/caching, documentation; long term — admin dashboard, billing integration, webhooks, API v2.
 - Version history: 0.3.0 (2026-07-01, all core features + thin coverage), 0.2.0 (2026-05-31, competitor features), 0.1.0 (2026-05-02, foundation + core sharing/auth/teams).
 
@@ -106,7 +106,7 @@ Running notes from the 14 DOC-classified documents, keyed by topic. Verbatim/par
 - Tooling: pytest ≥8.0, pytest-asyncio ≥0.24, httpx ≥0.28.0, Python ≥3.12; `asyncio_mode = "auto"`, `testpaths = ["tests"]`; no project-level `conftest.py`.
 - Two test patterns: (1) HTTP-level via `ASGITransport`/`AsyncClient` (also Starlette `TestClient` in `test_file_requests.py`) for route existence/validation/response shape; (2) pure unit tests (`test_encryption.py`) with no I/O.
 - Mocking strategy: (a) patch `get_admin_client`/`get_user_client`/`get_anon_client` at the call site with `MagicMock` query-builder chains; (b) mock `core.config.settings` via autouse fixture with fake Supabase config; (c) override `get_current_user` via `app.dependency_overrides` rather than forging JWTs.
-- No coverage tooling configured (no `pytest-cov`, no `.coveragerc`); no CI pipeline runs the suite (no `.github/workflows/` in this repo — the sibling `dropitx-cli/` repo's CI does not test this API).
+- No coverage tooling configured (no `pytest-cov`, no `.coveragerc`); CI (`.github/workflows/ci.yml`) runs the suite on pushes to `main` and pull requests.
 
 ## Firebase Google Sign-In — frontend implementation plan (in-progress migration)
 - source: docs/2026-08-12-firebase-google-login-implementation.md

@@ -113,7 +113,7 @@ Each task was committed atomically:
 - Relabeled the full auth box in system-architecture.md's diagram (not just the "JWKS keys" cell): a box still titled "Supabase Auth (JWT issuer)" would keep describing Supabase as the live JWT issuer, violating the plan's must-have truth. The "(JWT issuer)" subtitle itself is accurate for Firebase and was kept; neighboring table/bucket boxes were left byte-identical per the DEPLOY-05 prohibition.
 - Corrected "(cached 10min)" to "(cached 1hr)" in the same sequence-diagram step as the "Fetch JWKS" relabel — the stale TTL is part of the same auth-mechanism step (`_CERTS_TTL = 3600`).
 - Adopted the interrupted prior session's uncommitted doc-refresh edits in 4 of the 8 files (deployment-guide.md, system-architecture.md, project-roadmap.md, project-overview-pdr.md) after verifying the plan's line references were authored against that working-tree state; the refresh content itself contains no auth-mechanism corrections (this plan supplies those).
-- Left docs/DEPLOYMENT.md's Render framing, `SUPABASE_URL`-required-for-auth assumption, and all bucket/table-count claims untouched — Phase 3 DEPLOY-01/DEPLOY-05 territory, per the plan's prohibitions.
+- Left docs/DEPLOYMENT.md's deployment-target framing, `SUPABASE_URL`-required-for-auth assumption, and all bucket/table-count claims untouched — Phase 3 DEPLOY-01/DEPLOY-05 territory, per the plan's prohibitions.
 
 ## Deviations from Plan
 
@@ -130,7 +130,7 @@ None - no external service configuration required.
 - AUTH-05's doc-accuracy requirement is complete across all 16 audited files plus core/supabase.py (02-03 + 02-04 combined)
 - Phase-level grep from 02-VALIDATION.md passes: `grep -rn "verify_supabase_jwt\|Supabase JWKS" docs/ README.md CLAUDE.md` → empty
 - 02-02 remains paused at its human checkpoint (env example files) — the only outstanding piece of Phase 2
-- Phase 3 (Deployment Path Finalization) owns the deliberately untouched claims: Render-vs-k8s/Dokploy framing, SUPABASE_URL-for-auth assumption (DEPLOY-01), bucket count/naming (DEPLOY-05)
+- Phase 3 (Deployment Path Finalization) owns the deliberately untouched claims: deployment-target (k8s/Dokploy) framing, SUPABASE_URL-for-auth assumption (DEPLOY-01), bucket count/naming (DEPLOY-05)
 
 ## Self-Check: PASSED
 

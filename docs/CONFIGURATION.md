@@ -2,9 +2,9 @@
 
 # Configuration
 
-All runtime configuration for the DropItX API is supplied via environment variables. There is no YAML/TOML application config file — settings are loaded once at startup by Pydantic `BaseSettings` in [`core/config.py`](../core/config.py), with logging knobs read directly from the environment in [`app/main.py`](../app/main.py). Production deployment uses [Render](../render.yaml); local development uses a `.env` file.
+All runtime configuration for the DropItX API is supplied via environment variables. There is no YAML/TOML application config file — settings are loaded once at startup by Pydantic `BaseSettings` in [`core/config.py`](../core/config.py), with logging knobs read directly from the environment in [`app/main.py`](../app/main.py). In production the values come from the Kubernetes ConfigMap and Secret in `phuongddx/vps192-k8s-config` (see [DEPLOYMENT.md](DEPLOYMENT.md)); local development uses a `.env` file.
 
-> Secret values (Supabase keys) are never committed. Reference them by env var name only and set them in your Render dashboard or local `.env`.
+> Secret values (Supabase keys) are never committed. Reference them by env var name only and set them in the Kubernetes Secret or your local `.env`.
 
 ## Environment variables
 
@@ -19,14 +19,7 @@ All runtime configuration for the DropItX API is supplied via environment variab
 | `ENV` | No | `production` | Environment label. Controls log format only: `production` → JSON lines, anything else → human-readable. Read via `os.getenv` in `app/main.py`. |
 | `LOG_LEVEL` | No | `INFO` | Root log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). Read via `os.getenv` in `app/main.py`. |
 
-Additional variables injected by Render (defined in [`render.yaml`](../render.yaml)):
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `PYTHON_VERSION` | No | `3.12.0` | Python runtime version for the Render web service. `pyproject.toml` requires `>=3.12`. |
-| `PORT` | No | Render-injected | Port the web service binds to (`uvicorn ... --port $PORT`). Set automatically by Render. |
-
-<!-- VERIFY: actual production values for SUPABASE_URL, ALLOWED_ORIGINS, and FRONTEND_URL are stored in the Render dashboard, not in the repository. -->
+The container image listens on port `8000` (hardcoded in the `Dockerfile` start command); it does not read a `PORT` variable. Production values for these settings live in `vps192-k8s-config`, not in this repository.
 
 ## Config file format
 
@@ -46,7 +39,7 @@ class Settings(BaseSettings):
 Loading behavior:
 
 - A single `settings = Settings()` instance is constructed at import time and reused process-wide.
-- `model_config.env_file = ".env"` — values are read from a `.env` file in the current working directory (UTF-8). Environment variables take precedence over `.env` values, which is how Render's injected env vars override the file on deploy.
+- `model_config.env_file = ".env"` — values are read from a `.env` file in the current working directory (UTF-8). Environment variables take precedence over `.env` values, which is how the environment variables set on the pod override the file.
 - Field names map to upper-snake env vars automatically (`supabase_url` → `SUPABASE_URL`).
 - `cors_origins` is a computed property (`settings.cors_origins`) that splits `ALLOWED_ORIGINS` on commas and strips whitespace; `*` short-circuits to `["*"]`.
 
@@ -66,9 +59,9 @@ The `.env` file is gitignored (see `.gitignore`); copy `.env.example` to `.env` 
 
 **Required (startup fails if missing):** `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
 
-These are declared without defaults in `Settings`, so Pydantic raises `ValidationError` at import time if any is absent — the app will not boot. When running locally, copy `.env.example` to `.env` and supply real values. On Render, set all three in the service dashboard (the keys are declared with `sync: false` in `render.yaml`, meaning Render holds them as encrypted env vars rather than deriving them from the blueprint).
+These are declared without defaults in `Settings`, so Pydantic raises `ValidationError` at import time if any is absent — the app will not boot. When running locally, copy `.env.example` to `.env` and supply real values. In production, supply them through the Kubernetes Secret in `vps192-k8s-config`.
 
-**Optional (have defaults):** `ALLOWED_ORIGINS`, `FRONTEND_URL`, `ENV`, `LOG_LEVEL`, `PORT`. The app starts with their defaults if unset.
+**Optional (have defaults):** `ALLOWED_ORIGINS`, `FRONTEND_URL`, `ENV`, `LOG_LEVEL`. The app starts with their defaults if unset.
 
 ## Defaults
 
@@ -78,7 +71,6 @@ These are declared without defaults in `Settings`, so Pydantic raises `Validatio
 | `FRONTEND_URL` | `http://localhost:3000` | `core/config.py` (`Settings.frontend_url`) |
 | `ENV` | `production` | `app/main.py` (`os.getenv("ENV", "production")`) |
 | `LOG_LEVEL` | `INFO` | `app/main.py` (`os.getenv("LOG_LEVEL", "INFO")`) |
-| `PYTHON_VERSION` | `3.12.0` | `render.yaml` |
 
 Note the implication for local dev: leaving `ENV` unset means JSON logs, which is noisy for terminal use. Set `ENV=development` (or any non-`production` value) in your local `.env` for readable logs.
 
@@ -88,9 +80,7 @@ There is no `.env.development` / `.env.production` / `.env.test` scheme — Pyda
 
 - **Local development** — populate `.env` in the project root. Override `ENV=development` and `LOG_LEVEL=DEBUG` for readable, verbose logs. Point `ALLOWED_ORIGINS` and `FRONTEND_URL` at your local frontend (default `http://localhost:3000`).
 - **Test** — no dedicated test config. `pytest` (configured in `pyproject.toml` with `asyncio_mode = "auto"`, `testpaths = ["tests"]`) inherits whatever environment the test runner sees. Tests that need Supabase should set the required env vars before invoking pytest.
-- **Production (Render)** — set all five core variables (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `ALLOWED_ORIGINS`, `FRONTEND_URL`) plus `ENV`/`LOG_LEVEL` in the Render service dashboard. Environment variables injected by Render take precedence over any `.env` file. `ENV=production` (the default) enables JSON-structured logging for observability.
-
-<!-- VERIFY: production ALLOWED_ORIGINS and FRONTEND_URL values, plus the exact Render service ID and dashboard URL, are not in the repository. Set/verify them in the Render dashboard. -->
+- **Production (vps192 k3s)** — set the variables from the table above through the ConfigMap and Secret in `vps192-k8s-config`. Environment variables set on the pod take precedence over any `.env` file. `ENV=production` (the default) enables JSON-structured logging for observability.
 
 ## CORS configuration
 
@@ -143,6 +133,6 @@ The following must exist in the configured Supabase project for the API to funct
 
 ## Runtime requirements
 
-- **Python:** `>=3.12` (declared in [`pyproject.toml`](../pyproject.toml)); Render pins `3.12.0`.
+- **Python:** `>=3.12` (declared in [`pyproject.toml`](../pyproject.toml)); the container image uses Python 3.12 (`python:3.12-slim`).
 - **Dependencies:** see [`requirements.txt`](../requirements.txt) (`fastapi`, `uvicorn[standard]`, `supabase`, `pydantic-settings`, `python-jose[cryptography]`, `bcrypt`, `python-multipart`, `httpx`, `qrcode[pil]`, `cryptography`, `dnspython`). A reproducible lockfile is available in `uv.lock`.
-- **Start command (Render):** `uvicorn app.main:app --host 0.0.0.0 --port $PORT` (from [`render.yaml`](../render.yaml)).
+- **Start command (container):** `uvicorn app.main:app --host 0.0.0.0 --port 8000` (from the [`Dockerfile`](../Dockerfile)).

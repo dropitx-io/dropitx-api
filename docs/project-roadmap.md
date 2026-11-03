@@ -76,7 +76,7 @@
 - [x] Revision snapshot retrieval
 
 ### Phase 9 — Deployment (Complete)
-- [x] Render deployment blueprint
+- [x] Container deployment to the vps192 k3s cluster
 - [x] Interactive API docs (`/docs`, `/redoc`)
 - [x] Environment variable configuration
 - [x] Background cleanup service
@@ -92,13 +92,6 @@
 - **Status**: Basic HTTPException + global handler, logs are JSON in prod
 - **What's missing**: Structured error codes per endpoint, error documentation in OpenAPI
 - **Impact**: Clients can't reliably handle errors beyond status code
-
-### Dual CLI Situation
-- **Status**: Two independent CLI implementations coexist
-  - `dropitx-api/cli/` — npm package (JS/Commander-based)
-  - `dropitx-cli/` sibling repo — Python, separate codebase
-- **Decision needed**: Keep both or consolidate? Current state creates confusion about which is canonical.
-- **Impact**: Maintenance burden, unclear to users which to use
 
 ### Connection Pooling
 - **Status**: Admin Supabase client created fresh per call

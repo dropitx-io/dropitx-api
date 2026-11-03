@@ -326,13 +326,13 @@ Predefined limits:
 
 ## Deployment Architecture
 
-### Render (Container)
+### vps192 k3s (Container)
 ```
 Request
   ↓
-Render Load Balancer
+Ingress (vps192-k8s-config)
   ↓
-Render Container Instance (uvicorn)
+Container pod (uvicorn)
   ↓
 app.main:app (FastAPI)
   ↓
@@ -342,10 +342,9 @@ Response
 ```
 
 - **Runtime**: Python 3.12+ (uvicorn)
-- **Port**: $PORT (set by Render, default 8000)
+- **Port**: 8000 (set in the `Dockerfile`)
 - **Health Check**: `/health` (liveness probe)
-- **Config**: `.env` file or Render dashboard env vars
-- **Scaling**: Auto-scaling based on CPU/memory
+- **Config**: `.env` file locally; Kubernetes ConfigMap/Secret in `vps192-k8s-config` in production
 - **Persistence**: Stateless (all state in Supabase)
 
 ## Async/Threading Strategy

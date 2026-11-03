@@ -5,13 +5,12 @@
 ## Languages
 
 **Primary:**
-- Python 3.12+ (pinned via `requires-python = ">=3.12"` in `pyproject.toml`, `python:3.12-slim` base in `Dockerfile`, `PYTHON_VERSION=3.12.0` in `render.yaml`) — all backend code in `app/`, `core/`, `models/`
+- Python 3.12+ (pinned via `requires-python = ">=3.12"` in `pyproject.toml`, `python:3.12-slim` base in `Dockerfile`) — all backend code in `app/`, `core/`, `models/`
 
 **Secondary:**
 - SQL — schema (`infra/init/01_schema.sql`, `infra/init/02_rpc_functions.sql`), legacy Supabase migrations (`supabase/migrations/*.sql`), incremental patches (`migrations/*.sql`), k8s auth stub (`k8s/auth-stub.sql`)
-- YAML — `docker-compose.yml`, `render.yaml`, `k8s/*.yaml`
+- YAML — `docker-compose.yml`, `k8s/*.yaml`
 - Shell — `k8s/create-secret.sh`, migration Job inline script in `k8s/migrate-job.yaml`
-- Node.js — separate `cli/` package (not part of Python build)
 
 ## Runtime
 
@@ -28,7 +27,7 @@
 
 **Core:**
 - FastAPI `>=0.115.0` — HTTP API framework; app instance in `app/main.py`
-- Uvicorn `>=0.34.0` (`[standard]` extras) — ASGI server; start cmd `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
+- Uvicorn `>=0.34.0` (`[standard]` extras) — ASGI server; start cmd `uvicorn app.main:app --host 0.0.0.0 --port 8000` (Dockerfile)
 - Pydantic Settings `>=2.7.0` — `core/config.py:Settings(BaseSettings)` loads `.env`
 - Starlette — transitive via FastAPI; used directly for `BaseHTTPMiddleware` in `core/middleware.py`
 
@@ -83,7 +82,6 @@
 - `requirements.txt` — pip manifest (adds `qrcode[pil]`, `dnspython`, `asyncpg`, `boto3` beyond `pyproject.toml`'s list)
 - `Dockerfile` — multi-stage: builder installs `gcc libpq-dev` + `uv`; runtime carries only `libpq5`
 - `docker-compose.yml` — Postgres 16, MinIO, `createbuckets` init service (creates `html-files` + `shares` buckets, sets anonymous download)
-- `render.yaml` — Render blueprint (`python` runtime, free plan)
 - `k8s/*.yaml` — `namespace`, `postgres`, `minio`, `api` (Deployment+Service NodePort 30080), `migrate-job`; `k8s/create-secret.sh` builds the `dropitx-env` Secret from `.env`
 
 ## Platform Requirements
@@ -94,7 +92,7 @@
 - Firebase project required even for local dev (FIREBASE_PROJECT_ID); auth verification hits `googleapis.com` for signing certs
 
 **Production:**
-- Render (`render.yaml`) — `uvicorn app.main:app --host 0.0.0.0 --port $PORT`; predates local-Postgres migration, assumes cloud Supabase unless `DATABASE_URL`/`S3_*` overridden
+- vps192 k3s cluster (`https://api.dropitx.site`) — container image from the `Dockerfile` (`uvicorn app.main:app --host 0.0.0.0 --port 8000`); manifests in `phuongddx/vps192-k8s-config`
 - Kubernetes (`k8s/`) — actively-developed path; Postgres + MinIO deployed in-namespace (`postgresql.dropitx.svc`, `minio.dropitx.svc`); API exposed as NodePort 30080; migrations run via `migrate-db` Job
 - Every deployment target requires Firebase Auth reachability (outbound to `www.googleapis.com` and `securetoken.google.com`)
 

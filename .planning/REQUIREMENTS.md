@@ -60,10 +60,6 @@ Deferred to future release. Tracked but not in current roadmap.
 - **PLAT-03**: Webhooks
 - **PLAT-04**: API v2
 
-### Tooling Consolidation
-
-- **CLI-01**: Decide whether to keep both `dropitx-api/cli/` (Node) and the sibling `dropitx-cli` (Python) or consolidate — flagged as open tech debt in `docs/project-roadmap.md`, no decision made yet
-
 ## Out of Scope
 
 Explicitly excluded. Documented to prevent scope creep.

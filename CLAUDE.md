@@ -64,7 +64,7 @@ For a comprehensive API reference (90+ endpoints across health, documents, keys,
 - **`supabase/migrations/`** — the original Supabase-cloud schema history (base schema + feature migrations), from before the local-Postgres migration.
 - **`migrations/`** — later incremental SQL patches (encryption columns, burn-after-reading, revisions, custom domains, etc.) layered on top of either backend.
 - When adding a schema change: edit `infra/init/` (or add a new file there). It is the only schema authority: production applies it once to an empty Postgres, so there are no migrations to write and nothing to mirror in `supabase/migrations/` or `migrations/`.
-- **`k8s/`** — Kubernetes manifests for the local-Postgres/MinIO stack, including `auth-stub.sql` which stubs `auth.users`/`auth.uid()`/`auth.role()` on vanilla Postgres so migrations written for Supabase (which reference `auth.*`) still apply.
+- **`k8s/`** — holds `auth-stub.sql`, which stubs `auth.users`/`auth.uid()`/`auth.role()` on vanilla Postgres so migrations written for Supabase (which reference `auth.*`) still apply.
 
 ### Patterns
 
@@ -81,9 +81,9 @@ For a comprehensive API reference (90+ endpoints across health, documents, keys,
 
 ## Deployment
 
-- **Render**: `render.yaml` blueprint — `python` runtime, `pip install -r requirements.txt` build, `uvicorn app.main:app --host 0.0.0.0 --port $PORT` start command. This path assumes cloud Supabase for data+storage too (predates the local-Postgres migration) — verify `core/db.py`'s `database_url`/`s3_*` settings are reachable from Render before relying on it.
-- **Kubernetes**: `k8s/` manifests deploy the local-Postgres/MinIO stack (`namespace.yaml`, `postgres.yaml`, `minio.yaml`, `api.yaml`, `migrate-job.yaml`, `create-secret.sh`) — the newer, actively-developed deployment path.
-- **Python**: 3.12+ required (pinned in `render.yaml` and `pyproject.toml`)
+- **Production**: `https://api.dropitx.site`, on the vps192 k3s cluster. After CI passes on `main`, `.github/workflows/deploy.yml` builds `ghcr.io/dropitx-io/dropitx-api:<sha>` and opens a promotion PR in `phuongddx/vps192-k8s-config` (bumping `apps/dropitx-api/vps192/kustomization.yaml`); a human merges it, and that repo's deploy workflow applies the manifests and posts the rollout result to Slack. Rollback is another promotion PR pointing at the previous image tag.
+- **Manifests**: live in `phuongddx/vps192-k8s-config` under `apps/dropitx-api/{base,vps192}`, not in this repo. The local `Dockerfile` and `docker-compose.yml` here are real.
+- **Python**: 3.12+ required (pinned in `pyproject.toml`; the `Dockerfile` uses `python:3.12-slim`)
 - **Auth dependency**: Firebase project credentials (`FIREBASE_PROJECT_ID`) are required in every deployment target
 
 ## Environment Variables
@@ -96,6 +96,6 @@ Required in `.env` (see `.env.example` for the Supabase-cloud baseline, `.env.lo
 - `ALLOWED_ORIGINS` — Comma-separated CORS origins
 - `FRONTEND_URL` — Frontend base URL (used in invite links, oEmbed responses)
 
-## Other subprojects in this repo
+## Other repositories
 
-- **`cli/`** — a separate Node.js CLI (`dropitx` npm package) for the same API. Has its own `package.json`/tests; not part of the Python build.
+- **`dropitx-io/dropitx-cli`** — the CLI for the same API. It is a separate repository, not part of this one.
