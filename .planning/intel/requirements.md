@@ -82,7 +82,7 @@ Extracted from the sole PRD-classified document: `docs/project-overview-pdr.md` 
 
 ## REQ-nfr-scalability
 - source: docs/project-overview-pdr.md
-- description: Stateless — no server-side sessions. Externalized storage — Supabase Postgres + Storage. Container deployment — Render with auto-scaling. Async I/O — asyncio.to_thread for Supabase sync client. Rate limiting via RPC — distributed, Postgres-backed.
+- description: Stateless — no server-side sessions. Externalized storage — Supabase Postgres + Storage. Container deployment — vps192 k3s cluster. Async I/O — asyncio.to_thread for Supabase sync client. Rate limiting via RPC — distributed, Postgres-backed.
 - acceptance: (absent — NFR statement, not itemized in the v0.3.0 checklist)
 - scope: scalability (non-functional)
 
@@ -94,8 +94,8 @@ Extracted from the sole PRD-classified document: `docs/project-overview-pdr.md` 
 
 ## REQ-deployment-target
 - source: docs/project-overview-pdr.md
-- description: Platform — Render (container, auto-scaling); Database — Supabase Postgres; Storage — Supabase Storage (two buckets); Auth — Supabase Auth (JWT issuance, JWKS); Language — Python 3.12+; Framework — FastAPI with uvicorn; Configuration — `.env` based (Pydantic settings).
-- acceptance: Corresponds to master checklist item "Deployment (Render blueprint, health checks)".
+- description: Platform — vps192 k3s cluster (container); Database — Supabase Postgres; Storage — Supabase Storage (two buckets); Auth — Supabase Auth (JWT issuance, JWKS); Language — Python 3.12+; Framework — FastAPI with uvicorn; Configuration — `.env` based (Pydantic settings).
+- acceptance: Corresponds to master checklist item "Deployment (container image, vps192 k3s promotion flow, health check)".
 - scope: deployment
 - note: This describes the Supabase-Auth-era deployment target as stated in the PRD. See CONFLICTS report — the in-progress Firebase Auth migration (SPEC `docs/2026-08-12-firebase-auth-backend-api-design.md`) changes the Auth line item; this PRD has not been updated to reflect that migration.
 
@@ -126,5 +126,5 @@ Extracted from the sole PRD-classified document: `docs/project-overview-pdr.md` 
 ## REQ-acceptance-v030
 - source: docs/project-overview-pdr.md
 - description: Master "Acceptance Criteria (For v0.3.0)" checklist from the PRD.
-- acceptance: [x] Core sharing (upload, delete, password); [x] Team collaboration (CRUD, invites, roles); [x] API authentication (JWT, API keys); [x] E2E encryption (AES, PBKDF2); [x] Version history (snapshots, rollback); [x] Discovery (search, explore, profiles); [x] File management (multi-upload, preview, requests); [x] Analytics (tracking, QR codes, language); [x] Deployment (Render blueprint, health checks); [x] OpenAPI docs (/docs, /redoc); [x] Structured error responses (consistent JSON envelope with error codes); [ ] Test coverage > 80% (priority for next sprint, unchecked/incomplete).
+- acceptance: [x] Core sharing (upload, delete, password); [x] Team collaboration (CRUD, invites, roles); [x] API authentication (JWT, API keys); [x] E2E encryption (AES, PBKDF2); [x] Version history (snapshots, rollback); [x] Discovery (search, explore, profiles); [x] File management (multi-upload, preview, requests); [x] Analytics (tracking, QR codes, language); [x] Deployment (container image, vps192 k3s promotion flow, health check); [x] OpenAPI docs (/docs, /redoc); [x] Structured error responses (consistent JSON envelope with error codes); [ ] Test coverage > 80% (priority for next sprint, unchecked/incomplete).
 - scope: v0.3.0 release acceptance

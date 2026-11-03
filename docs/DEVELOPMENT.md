@@ -48,7 +48,7 @@ There is no `Makefile` and no `[project.scripts]` table in `pyproject.toml`; com
 | Command | Purpose |
 | --- | --- |
 | `uvicorn app.main:app --reload` | Dev server with auto-reload on file changes. |
-| `uvicorn app.main:app --host 0.0.0.0 --port $PORT` | Production-style start (this is the Render start command). |
+| `uvicorn app.main:app --host 0.0.0.0 --port 8000` | Production-style start (the command the container image in the `Dockerfile` runs). |
 | `pytest` | Run the full test suite (`testpaths = ["tests"]`). |
 | `pytest tests/test_encryption.py -v` | Run a single test file. |
 | `pytest -k "test_name" -v` | Run tests matching a name expression. |
@@ -90,7 +90,7 @@ No coverage threshold is configured (no `.coveragerc`, no `[tool.coverage]` in `
 
 ### CI
 
-No CI workflow is defined in this repository (no `.github/workflows/`, no `.gitlab-ci.yml`). Tests are run locally before push. <!-- VERIFY: if a CI pipeline is added outside this repo (e.g. a Render deploy hook or a pipeline defined in a parent workspace), document the trigger and test command here. -->
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs the test suite on pushes to `main` and on pull requests against a Postgres and MinIO service pair. After CI passes on `main`, [`.github/workflows/deploy.yml`](../.github/workflows/deploy.yml) builds the image and opens a promotion PR; see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Code style
 
@@ -125,7 +125,6 @@ models/                 Flat package of Pydantic DTOs (share, team, api_key, ana
 tests/                  pytest suite (asyncio_mode=auto)
 migrations/             Per-feature SQL migration fragments
 supabase/               Local Supabase project config + base SQL schema
-cli/                    Bundled Node.js CLI (separate npm package) — not part of the Python service
 ```
 
 **Convention:** route handlers stay thin — they extract auth, call into `core/` helpers and per-feature modules, and return Pydantic models. Persistence logic does not live in `app/`; it is pushed into `core/supabase.py` clients and Postgres RPCs. `core/` has no HTTP imports so it can be unit-tested without spinning up the app.
@@ -219,7 +218,7 @@ Conventions when adding logs:
 
 ## Branch conventions and PR process
 
-No branch-naming convention, `CONTRIBUTING.md`, or pull-request template is checked into this repository. Until one is added, keep branches short-lived and named descriptively (e.g. `feat/<thing>`, `fix/<thing>`), keep commits focused with conventional-commit-style messages, and run `pytest` locally before opening a PR. <!-- VERIFY: if a branch/PR policy is introduced (or already enforced via the Render/GitHub project settings), update this section with the real rules. -->
+No branch-naming convention, `CONTRIBUTING.md`, or pull-request template is checked into this repository. Until one is added, keep branches short-lived and named descriptively (e.g. `feat/<thing>`, `fix/<thing>`), keep commits focused with conventional-commit-style messages, and run `pytest` locally before opening a PR. <!-- VERIFY: if a branch/PR policy is introduced (or already enforced via the GitHub project settings), update this section with the real rules. -->
 
 ## Related docs
 

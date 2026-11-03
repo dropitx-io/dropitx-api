@@ -106,14 +106,8 @@ dropitx-api/
 │   ├── 005_add_one_time_download.sql
 │   └── 006_add_language_column.sql
 │
-├── cli/                           # Standalone npm CLI (Commander-based JS)
-│   ├── package.json
-│   ├── bin/dropitx.js
-│   ├── lib/commands/              # login, upload, download, list, delete
-│   └── lib/api.js
-│
 ├── docs/                          # Documentation
-├── render.yaml                    # Render deployment blueprint
+├── Dockerfile                     # Container image (deployed to the vps192 k3s cluster)
 ├── requirements.txt               # Python 3.12+ dependencies
 ├── pyproject.toml                # Project metadata & test config
 ├── CLAUDE.md                      # Developer instructions
@@ -306,7 +300,7 @@ Tests exist for:
 
 ## Deployment
 
-- **Platform**: Render (container, auto-scaling)
+- **Platform**: vps192 k3s cluster (container image, manifests in `phuongddx/vps192-k8s-config`)
 - **Language**: Python 3.12+
 - **Framework**: FastAPI + uvicorn
 - **Database**: Supabase Postgres

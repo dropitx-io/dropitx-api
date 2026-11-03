@@ -8,7 +8,7 @@ This guide takes you from a fresh clone to a running DropItX API server making i
 
 Before you begin, you need:
 
-- **Python 3.12 or newer** — pinned via `requires-python = ">=3.12"` in [`pyproject.toml`](../pyproject.toml) and `PYTHON_VERSION: "3.12.0"` in [`render.yaml`](../render.yaml). Check with `python --version`.
+- **Python 3.12 or newer** — pinned via `requires-python = ">=3.12"` in [`pyproject.toml`](../pyproject.toml). Check with `python --version`.
 - **pip** — comes with Python; used to install [`requirements.txt`](../requirements.txt).
 - **A Supabase project** with Auth, Postgres, and Storage enabled. The API expects:
   - Two Storage buckets: `html-files` and `shares`.
@@ -159,5 +159,5 @@ See [`README.md`](../README.md#api-reference) for the full endpoint reference an
 
 - **[ARCHITECTURE.md](./ARCHITECTURE.md)** — system design, module layout, and key patterns (async bridge, role hierarchy, API keys).
 - **[CONFIGURATION.md](./CONFIGURATION.md)** — full environment variable reference, defaults, and per-environment overrides.
-- **[deployment-guide.md](./deployment-guide.md)** — deploying to Render via [`render.yaml`](../render.yaml).
+- **[deployment-guide.md](./deployment-guide.md)** — deploying to the vps192 k3s cluster.
 - **[`README.md`](../README.md)** — full API reference, commands, and project structure.

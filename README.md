@@ -248,9 +248,9 @@ JWTs are Firebase ID tokens, verified via RS256 against Google's x509 cert endpo
 
 ## Deployment
 
-### Render
+### vps192 (k3s)
 
-Blueprint included in `render.yaml`. Connect repo, Render auto-detects config. Set env vars in the Render dashboard.
+Production runs at `https://api.dropitx.site` on the vps192 k3s cluster. Once CI passes on `main`, `.github/workflows/deploy.yml` builds `ghcr.io/dropitx-io/dropitx-api:<sha>` and opens a promotion PR in `phuongddx/vps192-k8s-config`; merging it deploys. Manifests and env config live in that repo under `apps/dropitx-api`. See [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ### Requirements
 

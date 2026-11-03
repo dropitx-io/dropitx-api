@@ -110,7 +110,6 @@ Items acknowledged and carried forward from previous milestone close:
 | Performance | Connection pooling, Redis cache, CDN, read replicas | v2 (REQUIREMENTS.md) | Initial roadmap |
 | Observability | Structured logging, error/uptime monitoring | v2 (REQUIREMENTS.md) | Initial roadmap |
 | Platform | Admin dashboard, billing, webhooks, API v2 | v2 (REQUIREMENTS.md) | Initial roadmap |
-| Tooling | Node CLI vs Python CLI consolidation decision | v2 (REQUIREMENTS.md) | Initial roadmap |
 
 ## Session Continuity
 

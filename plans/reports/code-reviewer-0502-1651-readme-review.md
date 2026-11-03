@@ -115,10 +115,6 @@ The README says "Supabase project with Auth, Postgres, and Storage configured" a
 
 The `supabase/` directory exists (per git status) but is untracked. Point developers there if it contains the schema.
 
-### 11. Vercel deployment section is sparse
-
-"Requires `@vercel/python` runtime" but there is no `vercel.json` in the repo. The CLAUDE.md mentions entry point `app/main.py` but the Vercel build for Python typically needs either `vercel.json` or a specific project config. The README should clarify whether auto-detection works or if config is needed.
-
 ---
 
 ## Low Priority

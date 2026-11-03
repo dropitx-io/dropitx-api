@@ -10,7 +10,7 @@ This is a **verify/merge/fix/document phase**, not a build-from-scratch phase. G
 
 **However, live execution against the real local Postgres surfaces one functional bug that no existing test catches**, because every existing auth test mocks the database: `provision_firebase_user` (the RPC behind `GET /api/auth/session`) throws `ERROR: column reference "user_id" is ambiguous` on every real call, because its `RETURNS TABLE(user_id TEXT, ...)` signature declares an OUT parameter named `user_id` that collides with `user_profiles.user_id` inside the function body — first in `ON CONFLICT (user_id) DO NOTHING` (which cannot be fixed by qualification, a real Postgres limitation), then again in the final `RETURN QUERY SELECT user_id, ...`. **This means AUTH-02's idempotent-provisioning success criterion currently fails 100% of the time in real use, despite green unit tests.** I reproduced the failure, designed and tested a fix live against the DB, and reverted the DB to the current (buggy) on-disk state afterward — see Common Pitfalls and Code Examples below for the exact verified fix.
 
-The remaining gaps are narrower than the design spec implies: `FIREBASE_PROJECT_ID` is genuinely missing only from `.env.example`/`.env.local.example` (both `render.yaml` and `k8s/create-secret.sh` already declare/require it — AUTH-04 is a two-file fix, not a deployment-wide one). Doc staleness (AUTH-05) is far broader than the three files named in the requirement — essentially every doc in `docs/` plus `README.md` and `CLAUDE.md` still describes "Supabase JWT/JWKS" as the auth mechanism, and several cite a function (`verify_supabase_jwt`) that no longer exists in the codebase at all.
+The remaining gaps are narrower than the design spec implies: `FIREBASE_PROJECT_ID` is genuinely missing only from `.env.example`/`.env.local.example` (`k8s/create-secret.sh` already declares/requires it — AUTH-04 is a two-file fix, not a deployment-wide one). Doc staleness (AUTH-05) is far broader than the three files named in the requirement — essentially every doc in `docs/` plus `README.md` and `CLAUDE.md` still describes "Supabase JWT/JWKS" as the auth mechanism, and several cite a function (`verify_supabase_jwt`) that no longer exists in the codebase at all.
 
 **Primary recommendation:** Fix `provision_firebase_user` first (it blocks AUTH-02/AUTH-03 in practice), then add one live-Postgres integration test that would have caught it, then do the `.env.example`/`.env.local.example` two-line addition (AUTH-04), then do a scoped doc pass limited to auth-mechanism claims (AUTH-05) — do not conflate with the separate, already-tracked storage-layout doc staleness (that's Phase 3's DEPLOY-05).
 
@@ -22,7 +22,7 @@ The remaining gaps are narrower than the design spec implies: `FIREBASE_PROJECT_
 | User provisioning (`auth.users` + `user_profiles` upsert) | Database (`provision_firebase_user` RPC) | API / Backend (`app/auth/session.py` calls it) | Atomicity (dual-table upsert) belongs in one RPC transaction, not two round-trips from Python |
 | Route-level identity resolution (`get_current_user`) | API / Backend (`app/dependencies.py`) | Database (one indexed SELECT) | Read-only by design (spec Decision #4) — provisioning writes only happen via `/api/auth/session` |
 | `401 user_not_provisioned` signaling | API / Backend | — | Contract with frontend: tells FE to call `/api/auth/session`, not a DB concern |
-| Env/config surface (`FIREBASE_PROJECT_ID`) | API / Backend (`core/config.py`) + deployment manifests | — | Consumed only by `core/security.py`; declared in `render.yaml`/`k8s/create-secret.sh`, missing from `.env*.example` |
+| Env/config surface (`FIREBASE_PROJECT_ID`) | API / Backend (`core/config.py`) + deployment manifests | — | Consumed only by `core/security.py`; declared in `k8s/create-secret.sh`, missing from `.env*.example` |
 | Doc accuracy (auth mechanism description) | Documentation (no runtime tier) | — | Not a code capability; tracked separately below |
 
 ## Phase Requirements
@@ -32,7 +32,7 @@ The remaining gaps are narrower than the design spec implies: `FIREBASE_PROJECT_
 | AUTH-01 | Every protected route accepts a valid Firebase ID token and resolves the user via the TEXT-keyed `auth.users` table | **Verified working** — `get_current_user` (`app/dependencies.py:56-81`) does `client.table("auth.users").select("id, email").eq("id", uid)`; all 12 FK-referencing tables confirmed `TEXT` in `infra/init/01_schema.sql`. No code change needed for this criterion alone. |
 | AUTH-02 | First-time login via `GET /api/auth/session` provisions `auth.users` + `user_profiles`, idempotent, reflects updated email | **Currently broken at the DB layer** — `provision_firebase_user` throws on every real call (see Common Pitfalls #1). Verified fix included in Code Examples. Route wiring (`app/auth/session.py`, `app/auth/router.py`, `app/main.py:112`) is correct. |
 | AUTH-03 | Protected route before `/api/auth/session` → `401 user_not_provisioned`; after → succeeds | **Verified working end-to-end via live HTTP test**, once AUTH-02's RPC bug is fixed (the flow can't complete past the `/api/auth/session` call otherwise, since that call itself 500s today). |
-| AUTH-04 | `FIREBASE_PROJECT_ID` documented in `.env.example`/`.env.local.example` and present in every deployment target | **Narrow, 2-file gap.** `render.yaml:11` and `k8s/create-secret.sh:13,25` already declare/require it. Only `.env.example` and `.env.local.example` (git-tracked) are missing the line — both currently show only `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY`. |
+| AUTH-04 | `FIREBASE_PROJECT_ID` documented in `.env.example`/`.env.local.example` and present in every deployment target | **Narrow, 2-file gap.** `k8s/create-secret.sh:13,25` already declares/requires it. Only `.env.example` and `.env.local.example` (git-tracked) are missing the line — both currently show only `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY`. |
 | AUTH-05 | Docs describe Firebase, not Supabase JWT/JWKS, as the live auth mechanism | **Far broader than the 3 files named in the requirement.** Full audit table below — 14 files, several referencing a function (`verify_supabase_jwt`) that no longer exists anywhere in `.py` source. |
 
 ## Standard Stack
@@ -272,7 +272,7 @@ Every file below currently states or implies Supabase JWT/JWKS is the live auth 
 | # | Claim | Section | Risk if Wrong |
 |---|-------|---------|---------------|
 | A1 | Firebase's cert endpoint's actual `Cache-Control: max-age` value (used to argue the hardcoded 1hr TTL is "close enough") was not fetched/verified this session — the recommendation to respect it is from Firebase's own docs, not a live check of the header. | Pitfall 4 | Low — this is flagged as optional hardening only, not a blocking fix |
-| A2 | Whether any **production/staging** Firebase project or deployment secret already has `FIREBASE_PROJECT_ID` set (vs. just the manifests referencing the variable name) could not be verified from the repo — `render.yaml`'s `sync: false` means the actual value lives only in the Render dashboard. | AUTH-04 / Phase Requirements table | Medium — if no deployment target has actually set the real secret value yet, AUTH-04's "present in every active deployment target's environment/secrets" criterion needs a human to confirm/set it in each dashboard, which is outside what a code-only phase can verify |
+| A2 | Whether any **production/staging** Firebase project or deployment secret already has `FIREBASE_PROJECT_ID` set (vs. just the manifests referencing the variable name) could not be verified from the repo — the actual value lives only in the deployment's secret store. | AUTH-04 / Phase Requirements table | Medium — if no deployment target has actually set the real secret value yet, AUTH-04's "present in every active deployment target's environment/secrets" criterion needs a human to confirm/set it in each dashboard, which is outside what a code-only phase can verify |
 
 **If this table is empty:** N/A — two low/medium-risk assumptions above should be confirmed by the user or a `checkpoint:human-verify` task before AUTH-04 is marked fully done.
 
@@ -283,10 +283,10 @@ Every file below currently states or implies Supabase JWT/JWKS is the live auth 
    - What's unclear: whether this project's convention favors editing migration files in place (since user data is documented as "disposable" per the original design spec) vs. always appending a new numbered migration for auditability.
    - Recommendation: given `migrations/008_provision_firebase_user.sql` was almost certainly never successfully run against any real (non-research) environment yet (it 500s), editing it in place is lower-risk than the alternative — but confirm with the user if this repo has a stated append-only migration convention.
 
-2. **Does AUTH-04's "every active deployment target" include the legacy `render.yaml` path, given `PROJECT.md` and `REQUIREMENTS.md` both note Phase 3 will finalize *one* deployment target (k8s or Dokploy)?**
-   - What we know: `render.yaml` already declares `FIREBASE_PROJECT_ID` (line 11) with `sync: false`, so it's covered at the manifest level regardless of whether Render remains "active."
-   - What's unclear: whether Render is still considered active pending Phase 3's decision, or already deprecated in practice.
-   - Recommendation: treat `render.yaml`'s existing declaration as sufficient for AUTH-04 without further action; let Phase 3 decide whether to remove `render.yaml` entirely.
+2. **Does AUTH-04's "every active deployment target" need to cover more than the `k8s/` path, given `PROJECT.md` and `REQUIREMENTS.md` both note Phase 3 will finalize *one* deployment target (k8s or Dokploy)?**
+   - What we know: `k8s/create-secret.sh` already declares and requires `FIREBASE_PROJECT_ID`, so it's covered at the manifest level.
+   - What's unclear: which deployment target is still considered active pending Phase 3's decision.
+   - Recommendation: treat `k8s/create-secret.sh`'s existing declaration as sufficient for AUTH-04 without further action; let Phase 3 decide the single deployment target.
 
 ## Environment Availability
 
@@ -363,7 +363,7 @@ Every file below currently states or implies Supabase JWT/JWKS is the live auth 
 - `infra/init/01_schema.sql`, `infra/init/02_rpc_functions.sql`, `migrations/007_firebase_uid_text.sql`, `migrations/008_provision_firebase_user.sql`, `k8s/auth-stub.sql` — read in full
 - `tests/test_auth_session.py`, `tests/test_dependencies.py` — read in full, executed (11/11 pass)
 - Live execution against `dropitx-pg` (postgres:16-alpine, docker compose) — reproduced the `provision_firebase_user` bug, designed and verified the fix, then reverted the DB to match on-disk state
-- `render.yaml`, `k8s/create-secret.sh` — read in full
+- `k8s/create-secret.sh` — read in full
 - `.env.example`, `.env.local.example` — read via `git show HEAD:<path>` (direct file read blocked by session privacy hook; git-object read is not)
 - Full-suite pytest run (`251 tests`, `uv.lock`-pinned `fastapi==0.136.3`) — confirms exactly the 5 pre-existing failures documented in `.planning/STATE.md`, nothing new broken
 
